@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>族谱录入</title>
+<style>
+body { font-family: sans-serif; padding: 20px; }
+h1 { margin-top: 0; }
+h2 { margin-top: 28px; }
+label { display:block; margin:8px 0 4px; }
+input, textarea { width: 360px; padding: 6px; }
+button { margin-top: 10px; padding: 8px 16px; margin-right: 8px; }
+.row { margin-bottom: 12px; }
+.result { margin-top: 10px; color: green; }
+.suggest-box {
+  width: 374px;
+  border: 1px solid #ddd;
+  max-height: 180px;
+  overflow-y: auto;
+  background: white;
+}
+.suggest-item {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.suggest-item:hover {
+  background: #f5f5f5;
+}
+.panel {
+  border: 1px solid #ddd;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+</style>
+</head>
+<body>
+
+<h1>族谱录入页</h1>
+
+<div class="panel">
+  <h2>人物搜索联想</h2>
+  <div class="row"><label>姓名关键字</label><input id="search_name" oninput="suggestPerson()"></div>
+  <div id="suggest_list" class="suggest-box"></div>
+</div>
+
+<div class="panel">
+  <h2>新增 / 编辑人物</h2>
+  <div class="row"><label>ID</label><input id="p_id"></div>
+  <div class="row"><label>姓名</label><input id="p_name"></div>
+  <div class="row"><label>性别</label><input id="p_gender" placeholder="male / female"></div>
+  <div class="row"><label>出生日期</label><input id="p_birth_date"></div>
+  <div class="row"><label>出生地点</label><input id="p_birth_place"></div>
+  <div class="row"><label>去世日期</label><input id="p_death_date"></div>
+  <div class="row"><label>安葬地点</label><input id="p_burial_place"></div>
+  <div class="row"><label>父亲ID</label><input id="p_father"></div>
+  <div class="row"><label>母亲ID</label><input id="p_mother"></div>
+  <div class="row"><label>生平</label><textarea id="p_bio"></textarea></div>
+  <div class="row"><label>备注</label><textarea id="p_note"></textarea></div>
+  <button onclick="createPerson()">保存人物</button>
+  <button onclick="loadPerson()">读取人物</button>
+  <button onclick="updatePerson()">更新人物</button>
+  <div id="person_result" class="result"></div>
+</div>
+
+<div class="panel">
+  <h2>新增 / 编辑婚姻</h2>
+  <div class="row"><label>婚姻ID</label><input id="m_id"></div>
+  <div class="row"><label>丈夫ID</label><input id="m_husband"></div>
+  <div class="row"><label>妻子ID</label><input id="m_wife"></div>
+  <div class="row"><label>结婚日期</label><input id="m_date"></div>
+  <div class="row"><label>备注</label><textarea id="m_note"></textarea></div>
+  <button onclick="createMarriage()">保存婚姻</button>
+  <button onclick="loadMarriage()">读取婚姻</button>
+  <button onclick="updateMarriage()">更新婚姻</button>
+  <div id="marriage_result" class="result"></div>
+</div>
+
+<div class="panel">
+  <h2>绑定子女到婚姻</h2>
+  <div class="row"><label>婚姻ID</label><input id="mc_marriage"></div>
+  <div class="row"><label>子女ID</label><input id="mc_child"></div>
+  <button onclick="addMarriageChild()">绑定</button>
+  <div id="mc_result" class="result"></div>
+</div>
+
+<div class="panel">
+  <h2>新增过继</h2>
+  <div class="row"><label>过继ID</label><input id="a_id"></div>
+  <div class="row"><label>人物ID</label><input id="a_person"></div>
+  <div class="row"><label>原父ID</label><input id="a_ff"></div>
+  <div class="row"><label>原母ID</label><input id="a_fm"></div>
+  <div class="row"><label>继父ID</label><input id="a_tf"></div>
+  <div class="row"><label>继母ID</label><input id="a_tm"></div>
+  <div class="row"><label>备注</label><textarea id="a_note"></textarea></div>
+  <button onclick="createAdoption()">保存过继</button>
+  <div id="adoption_result" class="result"></div>
+</div>
+
+<script>
+function fillPersonForm(p) {
+  document.getElementById('p_id').value = p.id || '';
+  document.getElementById('p_name').value = p.name || '';
+  document.getElementById('p_gender').value = p.gender || '';
+  document.getElementById('p_birth_date').value = p.birth_date || '';
+  document.getElementById('p_birth_place').value = p.birth_place || '';
+  document.getElementById('p_death_date').value = p.death_date || '';
+  document.getElementById('p_burial_place').value = p.burial_place || '';
+  document.getElementById('p_father').value = p.father_id || '';
+  document.getElementById('p_mother').value = p.mother_id || '';
+  document.getElementById('p_bio').value = p.bio || '';
+  document.getElementById('p_note').value = p.note || '';
+}
+
+function fillMarriageForm(m) {
+  document.getElementById('m_id').value = m.id || '';
+  document.getElementById('m_husband').value = m.husband_id || '';
+  document.getElementById('m_wife').value = m.wife_id || '';
+  document.getElementById('m_date').value = m.marriage_date || '';
+  document.getElementById('m_note').value = m.note || '';
+}
+
+async function suggestPerson() {
+  const name = document.getElementById('search_name').value.trim();
+  const box = document.getElementById('suggest_list');
+
+  if (!name) {
+    box.innerHTML = "";
+    return;
+  }
+
+  const r = await fetch('/person/suggest?name=' + encodeURIComponent(name));
+  const list = await r.json();
+
+  box.innerHTML = (list || []).map(p => `
+    <div class="suggest-item" onclick="pickPersonById('${p.id}')">
+      ${escapeHtml(p.name || '')} (${escapeHtml(p.id || '')})
+    </div>
+  `).join('');
+}
+
+async function pickPersonById(id) {
+  document.getElementById('p_id').value = id;
+  await loadPerson();
+  document.getElementById('suggest_list').innerHTML = "";
+}
+
+async function createPerson() {
+  const body = collectPerson();
+  const r = await fetch('/person/create', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  document.getElementById('person_result').innerText = await r.text();
+}
+
+async function loadPerson() {
+  const id = document.getElementById('p_id').value.trim();
+  if (!id) return;
+  const r = await fetch('/person/get?id=' + encodeURIComponent(id));
+  const p = await r.json();
+  fillPersonForm(p);
+  document.getElementById('person_result').innerText = '已读取';
+}
+
+async function updatePerson() {
+  const body = collectPerson();
+  const r = await fetch('/person/update', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  document.getElementById('person_result').innerText = await r.text();
+}
+
+function collectPerson() {
+  return {
+    id: document.getElementById('p_id').value,
+    name: document.getElementById('p_name').value,
+    gender: document.getElementById('p_gender').value,
+    birth_date: document.getElementById('p_birth_date').value,
+    birth_place: document.getElementById('p_birth_place').value,
+    death_date: document.getElementById('p_death_date').value,
+    burial_place: document.getElementById('p_burial_place').value,
+    father_id: document.getElementById('p_father').value,
+    mother_id: document.getElementById('p_mother').value,
+    bio: document.getElementById('p_bio').value,
+    note: document.getElementById('p_note').value
+  };
+}
+
+async function createMarriage() {
+  const body = collectMarriage();
+  const r = await fetch('/marriage/create', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  document.getElementById('marriage_result').innerText = await r.text();
+}
+
+async function loadMarriage() {
+  const id = document.getElementById('m_id').value.trim();
+  if (!id) return;
+  const r = await fetch('/marriage/get?id=' + encodeURIComponent(id));
+  const m = await r.json();
+  fillMarriageForm(m);
+  document.getElementById('marriage_result').innerText = '已读取';
+}
+
+async function updateMarriage() {
+  const body = collectMarriage();
+  const r = await fetch('/marriage/update', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  document.getElementById('marriage_result').innerText = await r.text();
+}
+
+function collectMarriage() {
+  return {
+    id: document.getElementById('m_id').value,
+    husband_id: document.getElementById('m_husband').value,
+    wife_id: document.getElementById('m_wife').value,
+    marriage_date: document.getElementById('m_date').value,
+    note: document.getElementById('m_note').value
+  };
+}
+
+async function addMarriageChild() {
+  const marriageID = document.getElementById('mc_marriage').value;
+  const childID = document.getElementById('mc_child').value;
+
+  const r = await fetch('/marriage/add_child?marriage_id=' + encodeURIComponent(marriageID) + '&child_id=' + encodeURIComponent(childID), {
+    method: 'POST'
+  });
+
+  document.getElementById('mc_result').innerText = await r.text();
+}
+
+async function createAdoption() {
+  const body = {
+    id: document.getElementById('a_id').value,
+    person_id: document.getElementById('a_person').value,
+    from_father_id: document.getElementById('a_ff').value,
+    from_mother_id: document.getElementById('a_fm').value,
+    to_father_id: document.getElementById('a_tf').value,
+    to_mother_id: document.getElementById('a_tm').value,
+    note: document.getElementById('a_note').value
+  };
+
+  const r = await fetch('/adoption/create', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+
+  document.getElementById('adoption_result').innerText = await r.text();
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+</script>
+
+</body>
+</html>

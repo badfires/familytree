@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>族谱视图</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 16px;
+  background: #f7f7f7;
+}
+h2 { margin-top: 0; }
+.toolbar { margin-bottom: 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.toolbar input { width: 220px; padding: 6px; }
+.toolbar button, .toolbar a { padding: 6px 12px; }
+.panel {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.card {
+  min-width: 120px;
+  padding: 10px 14px;
+  border: 2px solid steelblue;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.marriage {
+  border-color: #d48806;
+  background: #fff7e6;
+}
+.child {
+  border-color: #52c41a;
+}
+.note {
+  color: #666;
+  margin-top: 6px;
+}
+.sub-title {
+  margin-bottom: 10px;
+  font-weight: bold;
+}
+.suggest-box {
+  width: 240px;
+  border: 1px solid #ddd;
+  background: white;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.suggest-item {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.suggest-item:hover {
+  background: #f5f5f5;
+}
+svg {
+  border: 1px solid #ddd;
+  background: #fafafa;
+}
+.link {
+  fill: none;
+  stroke: #bbb;
+  stroke-width: 2px;
+}
+.person-box {
+  fill: #ffffff;
+  stroke: steelblue;
+  stroke-width: 2px;
+  rx: 6;
+  ry: 6;
+}
+.marriage-box {
+  fill: #fff7e6;
+  stroke: #d48806;
+  stroke-width: 2px;
+  rx: 6;
+  ry: 6;
+}
+.node-text {
+  font-size: 14px;
+  dominant-baseline: middle;
+  text-anchor: middle;
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<h2>族谱视图</h2>
+
+<div class="toolbar">
+  <input id="personId" value="p1" placeholder="输入人物ID，例如 p1">
+  <input id="searchName" placeholder="输入姓名搜索" oninput="suggestPerson()">
+  <button onclick="loadCurrent()">查看</button>
+  <button onclick="switchMode('view')">关系视图</button>
+  <button onclick="switchMode('tree')">树图视图</button>
+  <a href="/editor.html" target="_blank">打开录入页</a>
+</div>
+
+<div id="suggest_list" class="suggest-box"></div>
+<div id="app"></div>
+
+<script>
+let currentMode = 'view';
+
+function switchMode(mode) {
+  currentMode = mode;
+  loadCurrent();
+}
+
+function jumpTo(id) {
+  document.getElementById('personId').value = id;
+  loadCurrent();
+}
+
+async function suggestPerson() {
+  const name = document.getElementById('searchName').value.trim();
+  const box = document.getElementById('suggest_list');
+  if (!name) {
+    box.innerHTML = "";
+    return;
+  }
+
+  const r = await fetch('/person/suggest?name=' + encodeURIComponent(name));
+  const list = await r.json();
+
+  box.innerHTML = (list || []).map(p => `
+    <div class="suggest-item" onclick="pickSuggest('${p.id}')">
+      ${escapeHtml(p.name || '')} (${escapeHtml(p.id || '')})
+    </div>
+  `).join('');
+}
+
+function pickSuggest(id) {
+  document.getElementById('personId').value = id;
+  document.getElementById('suggest_list').innerHTML = "";
+  loadCurrent();
+}
+
+function personCard(p, cls = "") {
+  return `
+    <div class="card ${cls}" onclick="jumpTo('${escapeAttr(p.id)}')">
+      <div>${escapeHtml(p.name || '')}</div>
+      <div class="note">${escapeHtml(p.id || '')}</div>
+    </div>
+  `;
+}
+
+function marriageBlock(m) {
+  const spouses = (m.spouses || []).map(p => personCard(p)).join("");
+  const children = (m.children || []).map(p => personCard(p, "child")).join("");
+
+  return `
+    <div class="panel marriage">
+      <div class="sub-title">婚姻：${escapeHtml(m.marriage_id)}</div>
+      <div class="row">${spouses || '<div class="note">无配偶信息</div>'}</div>
+      <div class="note" style="margin-top:12px;">子女</div>
+      <div class="row" style="margin-top:8px;">${children || '<div class="note">暂无子女</div>'}</div>
+    </div>
+  `;
+}
+
+function adoptionBlock(a) {
+  if (!a) return "";
+  const fromHtml = (a.from || []).map(p => personCard(p)).join("");
+  const toHtml = (a.to || []).map(p => personCard(p)).join("");
+
+  return `
+    <div class="panel">
+      <div class="sub-title">过继信息</div>
+      <div class="note">原父母</div>
+      <div class="row" style="margin-top:8px;">${fromHtml || '<div class="note">无</div>'}</div>
+      <div class="note" style="margin-top:12px;">过继父母</div>
+      <div class="row" style="margin-top:8px;">${toHtml || '<div class="note">无</div>'}</div>
+      <div class="note" style="margin-top:12px;">备注：${escapeHtml(a.note || '')}</div>
+    </div>
+  `;
+}
+
+async function loadView(id) {
+  const r = await fetch('/family_view?id=' + encodeURIComponent(id));
+  const data = await r.json();
+
+  const parents = (data.parents || []).map(p => personCard(p)).join("");
+  const marriages = (data.marriages || []).map(marriageBlock).join("");
+
+  document.getElementById('app').innerHTML = `
+    <div class="panel">
+      <div class="sub-title">当前人物</div>
+      <div class="row">${personCard(data.center)}</div>
+    </div>
+
+    <div class="panel">
+      <div class="sub-title">父母</div>
+      <div class="row">${parents || '<div class="note">暂无父母信息</div>'}</div>
+    </div>
+
+    ${adoptionBlock(data.adoption)}
+
+    <div class="sub-title">婚姻与子女</div>
+    ${marriages || '<div class="panel"><div class="note">暂无婚姻信息</div></div>'}
+  `;
+}
+
+function normalizeNode(data) {
+  const node = {
+    id: data.id,
+    name: data.name || "",
+    type: data.type || "person",
+    spouses: data.spouses || [],
+    children: []
+  };
+
+  node.label = node.type === "marriage"
+    ? (node.spouses || []).map(s => s.name).join(" ── ")
+    : node.name;
+
+  if (data.children && data.children.length > 0) {
+    node.children = data.children.map(normalizeNode);
+  }
+
+  return node;
+}
+
+function estimateBoxWidth(d) {
+  const text = d.data.label || "";
+  const minWidth = d.data.type === "marriage" ? 130 : 90;
+  const charWidth = 15;
+  return Math.max(minWidth, text.length * charWidth + 24);
+}
+
+async function loadTree(id) {
+  const r = await fetch('/family_graph?id=' + encodeURIComponent(id) + '&depth=4');
+  const data = await r.json();
+
+  document.getElementById('app').innerHTML = `<div id="tree"></div>`;
+
+  const normalized = normalizeNode(data);
+  const root = d3.hierarchy(normalized);
+
+  const treeLayout = d3.tree().nodeSize([140, 180]);
+  treeLayout(root);
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  root.each(d => {
+    minX = Math.min(minX, d.x);
+    maxX = Math.max(maxX, d.x);
+    minY = Math.min(minY, d.y);
+    maxY = Math.max(maxY, d.y);
+  });
+
+  const width = Math.max(1600, maxX - minX + 480);
+  const height = Math.max(1000, maxY - minY + 220);
+  const margin = { top: 60, right: 140, bottom: 60, left: 140 };
+
+  const svg = d3.select("#tree")
+    .append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  const g = svg.append("g")
+    .attr("transform", `translate(${margin.left - minX},${margin.top - minY})`);
+
+  g.selectAll(".link")
+    .data(root.links())
+    .enter()
+    .append("path")
+    .attr("class", "link")
+    .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y));
+
+  const node = g.selectAll(".node")
+    .data(root.descendants())
+    .enter()
+    .append("g")
+    .attr("transform", d => `translate(${d.x},${d.y})`);
+
+  node.each(function(d) {
+    const current = d3.select(this);
+    const boxWidth = estimateBoxWidth(d);
+    const boxHeight = d.data.type === "marriage" ? 40 : 38;
+    const boxClass = d.data.type === "marriage" ? "marriage-box" : "person-box";
+
+    current.append("rect")
+      .attr("class", boxClass)
+      .attr("x", -boxWidth / 2)
+      .attr("y", -boxHeight / 2)
+      .attr("width", boxWidth)
+      .attr("height", boxHeight)
+      .style("cursor", d.data.type === "person" ? "pointer" : "default")
+      .on("click", () => {
+        if (d.data.type === "person") jumpTo(d.data.id);
+      });
+
+    current.append("text")
+      .attr("class", "node-text")
+      .attr("x", 0)
+      .attr("y", 1)
+      .text(d.data.label);
+  });
+}
+
+function loadCurrent() {
+  const id = document.getElementById('personId').value.trim();
+  if (!id) return;
+  if (currentMode === 'view') loadView(id);
+  else loadTree(id);
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function escapeAttr(str) {
+  return String(str).replaceAll("'", "\\'");
+}
+
+loadCurrent();
+</script>
+
+</body>
+</html>
