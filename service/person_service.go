@@ -34,8 +34,17 @@ func CreatePerson(p model.Person) (*model.Person, error) {
 	`
 	_, err = tx.Exec(
 		query,
-		p.ID, p.Name, p.Gender, p.BirthDate, p.BirthPlace,
-		p.DeathDate, p.BurialPlace, p.FatherID, p.MotherID, p.Bio, p.Note,
+		p.ID,
+		p.Name,
+		p.Gender,
+		p.BirthDate,
+		p.BirthPlace,
+		p.DeathDate,
+		p.BurialPlace,
+		p.FatherID,
+		p.MotherID,
+		p.Bio,
+		p.Note,
 	)
 	if err != nil {
 		return nil, err
@@ -51,48 +60,76 @@ func UpdatePerson(p model.Person) error {
 	if strings.TrimSpace(p.ID) == "" {
 		return errors.New("person id is required")
 	}
+
 	query := `
 		UPDATE people
-		SET name=?, gender=?, birth_date=?, birth_place=?, death_date=?,
-		    burial_place=?, father_id=?, mother_id=?, bio=?, note=?,
-		    updated_at=CURRENT_TIMESTAMP
+		SET
+			name=?,
+			gender=?,
+			birth_date=?,
+			birth_place=?,
+			death_date=?,
+			burial_place=?,
+			father_id=?,
+			mother_id=?,
+			bio=?,
+			note=?,
+			updated_at=CURRENT_TIMESTAMP
 		WHERE id=?
 	`
 	_, err := database.DB.Exec(
 		query,
-		p.Name, p.Gender, p.BirthDate, p.BirthPlace, p.DeathDate,
-		p.BurialPlace, p.FatherID, p.MotherID, p.Bio, p.Note, p.ID,
+		p.Name,
+		p.Gender,
+		p.BirthDate,
+		p.BirthPlace,
+		p.DeathDate,
+		p.BurialPlace,
+		p.FatherID,
+		p.MotherID,
+		p.Bio,
+		p.Note,
+		p.ID,
 	)
 	return err
 }
+
 func GetPerson(id string) (*model.Person, error) {
 	query := `
-	SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note
-	FROM people
-	WHERE id=?`
-
+		SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note
+		FROM people
+		WHERE id=?
+	`
 	row := database.DB.QueryRow(query, id)
 
 	var p model.Person
 	err := row.Scan(
-		&p.ID, &p.Name, &p.Gender, &p.BirthDate, &p.BirthPlace, &p.DeathDate,
-		&p.BurialPlace, &p.FatherID, &p.MotherID, &p.Bio, &p.Note,
+		&p.ID,
+		&p.Name,
+		&p.Gender,
+		&p.BirthDate,
+		&p.BirthPlace,
+		&p.DeathDate,
+		&p.BurialPlace,
+		&p.FatherID,
+		&p.MotherID,
+		&p.Bio,
+		&p.Note,
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	return &p, nil
 }
 
 func SearchPerson(name string) ([]model.Person, error) {
 	query := `
-	SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note
-	FROM people
-	WHERE name LIKE ?
-	ORDER BY name,id
-	LIMIT 50`
-
+		SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note
+		FROM people
+		WHERE name LIKE ?
+		ORDER BY name,id
+		LIMIT 50
+	`
 	rows, err := database.DB.Query(query, "%"+name+"%")
 	if err != nil {
 		return nil, err
@@ -103,8 +140,17 @@ func SearchPerson(name string) ([]model.Person, error) {
 	for rows.Next() {
 		var p model.Person
 		if err := rows.Scan(
-			&p.ID, &p.Name, &p.Gender, &p.BirthDate, &p.BirthPlace, &p.DeathDate,
-			&p.BurialPlace, &p.FatherID, &p.MotherID, &p.Bio, &p.Note,
+			&p.ID,
+			&p.Name,
+			&p.Gender,
+			&p.BirthDate,
+			&p.BirthPlace,
+			&p.DeathDate,
+			&p.BurialPlace,
+			&p.FatherID,
+			&p.MotherID,
+			&p.Bio,
+			&p.Note,
 		); err != nil {
 			return nil, err
 		}
@@ -115,11 +161,11 @@ func SearchPerson(name string) ([]model.Person, error) {
 
 func GetChildren(id string) ([]model.Person, error) {
 	query := `
-	SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note
-	FROM people
-	WHERE father_id=? OR mother_id=?
-	ORDER BY id`
-
+		SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note
+		FROM people
+		WHERE father_id=? OR mother_id=?
+		ORDER BY id
+	`
 	rows, err := database.DB.Query(query, id, id)
 	if err != nil {
 		return nil, err
@@ -130,8 +176,17 @@ func GetChildren(id string) ([]model.Person, error) {
 	for rows.Next() {
 		var p model.Person
 		if err := rows.Scan(
-			&p.ID, &p.Name, &p.Gender, &p.BirthDate, &p.BirthPlace, &p.DeathDate,
-			&p.BurialPlace, &p.FatherID, &p.MotherID, &p.Bio, &p.Note,
+			&p.ID,
+			&p.Name,
+			&p.Gender,
+			&p.BirthDate,
+			&p.BirthPlace,
+			&p.DeathDate,
+			&p.BurialPlace,
+			&p.FatherID,
+			&p.MotherID,
+			&p.Bio,
+			&p.Note,
 		); err != nil {
 			return nil, err
 		}
@@ -161,18 +216,23 @@ func toViewPerson(p *model.Person) model.ViewPerson {
 		Note:   p.Note,
 	}
 }
+
 func GetMinPersonID() (string, error) {
 	query := `
 		SELECT id
 		FROM people
 		WHERE id IS NOT NULL
 		  AND id <> ''
+		  AND SUBSTR(id, 1, 1) = 'p'
 		ORDER BY CAST(SUBSTR(id, 2) AS INTEGER), id
 		LIMIT 1
 	`
 
 	var id string
 	err := database.DB.QueryRow(query).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "p1", nil
+	}
 	if err != nil {
 		return "", err
 	}

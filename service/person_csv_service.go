@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -44,7 +45,6 @@ func GetNextPersonID() (string, error) {
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-
 	return fmt.Sprintf("p%d", maxVal+1), nil
 }
 
@@ -75,8 +75,17 @@ func BuildPersonTemplateCSV() ([]byte, error) {
 	w := csv.NewWriter(buf)
 
 	header := []string{
-		"id", "name", "gender", "birth_date", "birth_place",
-		"death_date", "burial_place", "father_id", "mother_id", "bio", "note",
+		"id",
+		"name",
+		"gender",
+		"birth_date",
+		"birth_place",
+		"death_date",
+		"burial_place",
+		"father_id",
+		"mother_id",
+		"bio",
+		"note",
 	}
 	if err := w.Write(header); err != nil {
 		return nil, err
@@ -113,26 +122,34 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 	}
 
 	expectedHeader := []string{
-		"id", "name", "gender", "birth_date", "birth_place",
-		"death_date", "burial_place", "father_id", "mother_id", "bio", "note",
+		"id",
+		"name",
+		"gender",
+		"birth_date",
+		"birth_place",
+		"death_date",
+		"burial_place",
+		"father_id",
+		"mother_id",
+		"bio",
+		"note",
 	}
 	if err := validateHeader(rows[0], expectedHeader); err != nil {
 		return nil, err
 	}
 
-	// 先拿数据库已有人物ID
 	existingIDs, err := loadExistingPersonIDs()
 	if err != nil {
 		return nil, err
 	}
 
-	// 先解析 CSV，并做基础校验
 	type personRow struct {
 		rowNum int
 		person model.Person
 	}
 	var parsed []personRow
 	csvIDs := make(map[string]struct{})
+	maxImportedPersonNo := 0
 
 	for i := 1; i < len(rows); i++ {
 		rowNum := i + 1
@@ -152,11 +169,9 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 			Note:        strings.TrimSpace(row[10]),
 		}
 
-		// 跳过整行空白
 		if isEmptyPersonRow(p) {
 			continue
 		}
-
 		if p.ID == "" {
 			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: id不能为空", rowNum)
 		}
@@ -172,11 +187,16 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 		if _, ok := existingIDs[p.ID]; ok {
 			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: id已存在于系统中: %s", rowNum, p.ID)
 		}
+
+		n := extractPersonIDNumber(p.ID)
+		if n > maxImportedPersonNo {
+			maxImportedPersonNo = n
+		}
+
 		csvIDs[p.ID] = struct{}{}
 		parsed = append(parsed, personRow{rowNum: rowNum, person: p})
 	}
 
-	// 再校验父母引用
 	allKnownIDs := make(map[string]struct{}, len(existingIDs)+len(csvIDs))
 	for id := range existingIDs {
 		allKnownIDs[id] = struct{}{}
@@ -187,6 +207,7 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 
 	for _, item := range parsed {
 		p := item.person
+
 		if p.FatherID != "" {
 			if _, ok := allKnownIDs[p.FatherID]; !ok {
 				return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行: father_id不存在: %s", item.rowNum, p.FatherID)
@@ -205,7 +226,7 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 	}
 	defer tx.Rollback()
 
-	query := `
+	insertPersonSQL := `
 		INSERT INTO people (
 			id,name,gender,birth_date,birth_place,death_date,burial_place,
 			father_id,mother_id,bio,note
@@ -216,14 +237,52 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 	for _, item := range parsed {
 		p := item.person
 		_, err := tx.Exec(
-			query,
-			p.ID, p.Name, p.Gender, p.BirthDate, p.BirthPlace,
-			p.DeathDate, p.BurialPlace, p.FatherID, p.MotherID, p.Bio, p.Note,
+			insertPersonSQL,
+			p.ID,
+			p.Name,
+			p.Gender,
+			p.BirthDate,
+			p.BirthPlace,
+			p.DeathDate,
+			p.BurialPlace,
+			p.FatherID,
+			p.MotherID,
+			p.Bio,
+			p.Note,
 		)
 		if err != nil {
 			return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行插入失败: %w", item.rowNum, err)
 		}
 		imported++
+	}
+
+	// 把 person 序列推进到导入后的最大值，避免后续 CreatePerson 生成重复 ID
+	if err := bumpSequenceToAtLeast(tx, SeqTypePerson, maxImportedPersonNo); err != nil {
+		return nil, err
+	}
+
+	// 自动补 marriage + marriage_children
+	for _, item := range parsed {
+		p := item.person
+		if p.FatherID == "" || p.MotherID == "" {
+			continue
+		}
+
+		marriageID, err := findMarriageIDByParentsTx(tx, p.FatherID, p.MotherID)
+		if err != nil {
+			return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行处理婚姻关系失败: %w", item.rowNum, err)
+		}
+
+		if marriageID == "" {
+			marriageID, err = createMarriageTx(tx, p.FatherID, p.MotherID, "", "auto created by csv import")
+			if err != nil {
+				return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行自动创建婚姻失败: %w", item.rowNum, err)
+			}
+		}
+
+		if err := addChildToMarriageTx(tx, marriageID, p.ID); err != nil {
+			return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行绑定婚姻子女关系失败: %w", item.rowNum, err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -233,7 +292,7 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 	return &PersonCSVImportResult{
 		Success:  true,
 		Imported: imported,
-		Message:  fmt.Sprintf("成功导入 %d 条人物数据", imported),
+		Message:  fmt.Sprintf("成功导入 %d 条人物数据，并自动补齐父母婚姻关系", imported),
 	}, nil
 }
 
@@ -288,4 +347,64 @@ func loadExistingPersonIDs() (map[string]struct{}, error) {
 		result[id] = struct{}{}
 	}
 	return result, rows.Err()
+}
+
+func bumpSequenceToAtLeast(tx *sql.Tx, seqType string, target int) error {
+	if target <= 0 {
+		return nil
+	}
+	_, err := tx.Exec(`
+		UPDATE id_sequences
+		SET current_value = CASE
+			WHEN current_value < ? THEN ?
+			ELSE current_value
+		END
+		WHERE seq_type = ?
+	`, target, target, seqType)
+	return err
+}
+
+func findMarriageIDByParentsTx(tx *sql.Tx, fatherID, motherID string) (string, error) {
+	var id string
+	err := tx.QueryRow(`
+		SELECT id
+		FROM marriages
+		WHERE (husband_id = ? AND wife_id = ?)
+		   OR (husband_id = ? AND wife_id = ?)
+		ORDER BY id
+		LIMIT 1
+	`, fatherID, motherID, motherID, fatherID).Scan(&id)
+
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func createMarriageTx(tx *sql.Tx, fatherID, motherID, marriageDate, note string) (string, error) {
+	newID, err := NextID(tx, SeqTypeMarriage, MarriagePrefix)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO marriages (id, husband_id, wife_id, marriage_date, note)
+		VALUES (?, ?, ?, ?, ?)
+	`, newID, fatherID, motherID, marriageDate, note)
+	if err != nil {
+		return "", err
+	}
+
+	return newID, nil
+}
+
+func addChildToMarriageTx(tx *sql.Tx, marriageID, childID string) error {
+	_, err := tx.Exec(`
+		INSERT OR IGNORE INTO marriage_children (marriage_id, child_id)
+		VALUES (?, ?)
+	`, marriageID, childID)
+	return err
 }
