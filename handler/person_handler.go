@@ -85,3 +85,15 @@ func SearchSuggestHandler(w http.ResponseWriter, r *http.Request) {
 
 	_ = json.NewEncoder(w).Encode(list)
 }
+func GetMinPersonIDHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := service.GetMinPersonID()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"id": id,
+	})
+}

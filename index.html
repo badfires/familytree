@@ -1,429 +1,946 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<title>族谱视图</title>
-<script src="https://d3js.org/d3.v7.min.js"></script>
-<style>
-body {
-  font-family: sans-serif;
-  margin: 0;
-  padding: 16px;
-  background: #f7f7f7;
-}
-h2 { margin-top: 0; }
-.toolbar { margin-bottom: 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-.toolbar input { width: 220px; padding: 6px; }
-.toolbar button, .toolbar a { padding: 6px 12px; }
-.panel {
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 14px;
-  margin-bottom: 16px;
-}
-.row {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.card {
-  min-width: 120px;
-  padding: 10px 14px;
-  border: 2px solid steelblue;
-  border-radius: 8px;
-  background: #fff;
-  cursor: pointer;
-}
-.marriage {
-  border-color: #d48806;
-  background: #fff7e6;
-}
-.child {
-  border-color: #52c41a;
-}
-.note {
-  color: #666;
-  margin-top: 6px;
-}
-.sub-title {
-  margin-bottom: 10px;
-  font-weight: bold;
-}
-.suggest-box {
-  width: 240px;
-  border: 1px solid #ddd;
-  background: white;
-  max-height: 180px;
-  overflow-y: auto;
-}
-.suggest-item {
-  padding: 6px 8px;
-  cursor: pointer;
-}
-.suggest-item:hover {
-  background: #f5f5f5;
-}
-svg {
-  border: 1px solid #ddd;
-  background: #fafafa;
-}
-.link {
-  fill: none;
-  stroke: #bbb;
-  stroke-width: 2px;
-}
-.person-box {
-  fill: #ffffff;
-  stroke: steelblue;
-  stroke-width: 2px;
-  rx: 6;
-  ry: 6;
-}
-.marriage-box {
-  fill: #fff7e6;
-  stroke: #d48806;
-  stroke-width: 2px;
-  rx: 6;
-  ry: 6;
-}
-.node-text {
-  font-size: 14px;
-  dominant-baseline: middle;
-  text-anchor: middle;
-  pointer-events: none;
-}
-.error-box {
-  color: #c62828;
-  background: #fff1f0;
-  border: 1px solid #ffa39e;
-  border-radius: 8px;
-  padding: 12px;
-}
-.empty-box {
-  color: #666;
-  background: #fff;
-  border: 1px dashed #ccc;
-  border-radius: 8px;
-  padding: 12px;
-}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>族谱视图</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+      background: #efefef;
+      color: #111;
+    }
+
+    .page {
+      width: 1200px;
+      max-width: 100%;
+      margin: 0 auto;
+      min-height: 100vh;
+      background: #efefef;
+    }
+
+    h1 {
+      margin: 0;
+      padding: 18px 20px 8px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid #ddd;
+      background: #efefef;
+      position: relative;
+    }
+
+    .toolbar input[type="text"] {
+      height: 36px;
+      padding: 0 10px;
+      border: 1px solid #999;
+      background: #fff;
+      font-size: 16px;
+      outline: none;
+    }
+
+    #personId {
+      width: 290px;
+    }
+
+    .search-wrap {
+      position: relative;
+      width: 320px;
+    }
+
+    #searchName {
+      width: 100%;
+    }
+
+    .toolbar button {
+      height: 36px;
+      padding: 0 18px;
+      border: 1px solid #777;
+      background: #fff;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .toolbar button:hover {
+      background: #f8f8f8;
+    }
+
+    .toolbar a {
+      margin-left: 12px;
+      color: #551a8b;
+      text-decoration: underline;
+      font-size: 16px;
+    }
+
+    .suggest-list {
+      position: absolute;
+      top: 38px;
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-top: none;
+      z-index: 100;
+      max-height: 240px;
+      overflow-y: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .suggest-item {
+      padding: 8px 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+    }
+
+    .suggest-item:hover {
+      background: #f5f5f5;
+    }
+
+    #app {
+      min-height: 680px;
+      padding-bottom: 30px;
+    }
+
+    .panel {
+      margin: 18px 0;
+      padding: 18px 16px;
+      background: #efefef;
+      border: 1px solid #d2d2d2;
+      border-radius: 10px;
+    }
+
+    .sub-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      color: #111;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 18px 0 10px;
+      padding: 0 2px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .note {
+      color: #666;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .card {
+      min-width: 170px;
+      min-height: 84px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: #f9f9f9;
+      border: 2px solid #4a8fd8;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+      font-size: 16px;
+    }
+
+    .card:hover {
+      background: #fcfcfc;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+    }
+
+    .card.child {
+      border-color: #52c41a;
+    }
+
+    .marriage {
+      background: #f4ecd9;
+      border-color: #d48b24;
+    }
+
+    .error-box {
+      color: #b71c1c;
+      padding: 12px 14px;
+      border: 1px solid #ef9a9a;
+      background: #fff1f0;
+      border-radius: 8px;
+      margin: 18px 20px 0;
+    }
+
+    .empty-box {
+      color: #666;
+      padding: 12px 14px;
+      border: 1px dashed #ccc;
+      background: #fff;
+      border-radius: 8px;
+      margin: 18px 20px 0;
+    }
+
+    /* Tree */
+    .tree-board-wrap {
+      padding: 24px 20px 40px;
+      overflow: auto;
+    }
+
+    .tree-board {
+      position: relative;
+      min-width: max-content;
+      padding: 20px 40px 80px;
+    }
+
+    .tree-svg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    .tree-node {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      margin: 0 18px;
+    }
+
+    .tree-parents-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 36px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .tree-parent-card {
+      min-width: 170px;
+      min-height: 52px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      background: rgba(249, 252, 255, 0.92);
+      border: 2px solid rgba(74, 143, 216, 0.55);
+      color: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .tree-parent-card:hover {
+      filter: brightness(0.98);
+    }
+
+    .tree-family-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 18px;
+      position: relative;
+      flex-wrap: nowrap;
+
+      padding: 16px 20px;
+      border-radius: 20px;
+      border: 2px solid rgba(120, 120, 120, 0.18);
+      background: rgba(255, 255, 255, 0.45);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
+      z-index: 2;
+    }
+
+    .tree-family-row::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 20px;
+      pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.28) inset;
+    }
+
+    .tree-person-card,
+    .tree-spouse-card {
+      min-width: 180px;
+      min-height: 58px;
+      padding: 12px 18px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+      position: relative;
+      z-index: 2;
+
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      transition: filter 0.15s ease, transform 0.15s ease;
+    }
+
+    .tree-person-card {
+      border: 2px solid rgba(74, 143, 216, 0.75);
+      background: rgba(249, 252, 255, 0.92);
+    }
+
+    .tree-spouse-card {
+      border: 2px solid rgba(212, 139, 36, 0.72);
+      background: rgba(244, 236, 217, 0.88);
+    }
+
+    .tree-person-card:hover,
+    .tree-spouse-card:hover {
+      filter: brightness(0.98);
+      transform: translateY(-1px);
+    }
+
+    .tree-branches {
+      margin-top: 62px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 56px;
+      position: relative;
+    }
+
+    .tree-branch {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      min-width: 220px;
+    }
+
+    .tree-loading {
+      padding: 20px;
+      color: #666;
+      font-size: 15px;
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        width: 100%;
+      }
+
+      h1 {
+        padding: 14px 12px 8px;
+      }
+
+      .toolbar {
+        padding: 14px 12px 8px;
+      }
+
+      #personId,
+      .search-wrap {
+        width: 100%;
+      }
+
+      .toolbar a {
+        margin-left: 0;
+      }
+
+      .tree-board-wrap {
+        padding: 16px 8px 30px;
+      }
+    }
+  </style>
 </head>
 <body>
+  <div class="page">
+    <h1>族谱视图</h1>
 
-<h2>族谱视图</h2>
+    <div class="toolbar">
+      <input id="personId" type="text" placeholder="输入人物ID" />
 
-<div class="toolbar">
-  <input id="personId" placeholder="输入人物ID，例如 p12 / a12 / 任意已有ID">
-  <input id="searchName" placeholder="输入姓名搜索" oninput="suggestPerson()">
-  <button onclick="loadCurrent()">查看</button>
-  <button onclick="switchMode('view')">关系视图</button>
-  <button onclick="switchMode('tree')">树图视图</button>
-  <a href="/editor.html" target="_blank">打开录入页</a>
-</div>
-
-<div id="suggest_list" class="suggest-box"></div>
-<div id="app"></div>
-
-<script>
-let currentMode = 'view';
-
-function escapeHtml(str) {
-  return String(str || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-async function requestJson(url, options = {}) {
-  const r = await fetch(url, options);
-  const text = await r.text();
-
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch (e) {
-    data = null;
-  }
-
-  if (!r.ok) {
-    throw new Error((data && data.error) || text || ('请求失败：' + r.status));
-  }
-  return data;
-}
-
-function showError(message) {
-  document.getElementById('app').innerHTML =
-    `<div style="color:#c62828;padding:12px;border:1px solid #ffa39e;background:#fff1f0;">${escapeHtml(message || '加载失败')}</div>`;
-}
-
-function showEmpty(message) {
-  document.getElementById('app').innerHTML =
-    `<div style="color:#666;padding:12px;border:1px dashed #ccc;background:#fff;">${escapeHtml(message || '暂无数据')}</div>`;
-}
-
-function switchMode(mode) {
-  currentMode = mode;
-  loadCurrent();
-}
-
-function jumpTo(id) {
-  document.getElementById('personId').value = id;
-  loadCurrent();
-}
-
-async function suggestPerson() {
-  const name = document.getElementById('searchName').value.trim();
-  const box = document.getElementById('suggest_list');
-
-  if (!name) {
-    box.innerHTML = "";
-    return;
-  }
-
-  try {
-    const list = await requestJson('/person/suggest?name=' + encodeURIComponent(name));
-    box.innerHTML = (list || []).map(p => `
-      <div class="suggest-item" onclick="pickSuggest('${String(p.id || '').replaceAll("'", "\\'")}')">
-        ${escapeHtml(p.name || '')} (${escapeHtml(p.id || '')})
+      <div class="search-wrap">
+        <input
+          id="searchName"
+          type="text"
+          placeholder="输入姓名搜索"
+          oninput="suggestPerson()"
+        />
+        <div id="suggest_list" class="suggest-list"></div>
       </div>
-    `).join('');
-  } catch (e) {
-    box.innerHTML = "";
-  }
-}
 
-function pickSuggest(id) {
-  document.getElementById('personId').value = id;
-  document.getElementById('suggest_list').innerHTML = "";
-  loadCurrent();
-}
-
-function personCard(p, cls = "") {
-  return `
-    <div class="card ${cls}" onclick="jumpTo('${String(p.id || '').replaceAll("'", "\\'")}')">
-      <div>${escapeHtml(p.name || '')}</div>
-      <div class="note">${escapeHtml(p.id || '')}</div>
-    </div>
-  `;
-}
-
-function marriageBlock(m) {
-  const spouses = (m.spouses || []).map(p => personCard(p)).join("");
-  const children = (m.children || []).map(p => personCard(p, "child")).join("");
-
-  return `
-    <div class="panel marriage">
-      <div class="sub-title">婚姻：${escapeHtml(m.marriage_id || '')}</div>
-      <div class="row">${spouses || '<div class="note">无配偶信息</div>'}</div>
-      <div class="note" style="margin-top:12px;">子女</div>
-      <div class="row" style="margin-top:8px;">${children || '<div class="note">暂无子女</div>'}</div>
-    </div>
-  `;
-}
-
-function adoptionBlock(a) {
-  if (!a) return "";
-  const fromHtml = (a.from || []).map(p => personCard(p)).join("");
-  const toHtml = (a.to || []).map(p => personCard(p)).join("");
-
-  return `
-    <div class="panel">
-      <div class="sub-title">过继信息</div>
-      <div class="note">原父母</div>
-      <div class="row" style="margin-top:8px;">${fromHtml || '<div class="note">无</div>'}</div>
-      <div class="note" style="margin-top:12px;">过继父母</div>
-      <div class="row" style="margin-top:8px;">${toHtml || '<div class="note">无</div>'}</div>
-      <div class="note" style="margin-top:12px;">备注：${escapeHtml(a.note || '')}</div>
-    </div>
-  `;
-}
-
-async function loadView(id) {
-  const data = await requestJson('/family_view?id=' + encodeURIComponent(id));
-
-  if (!data || !data.center) {
-    showEmpty('未找到该人物');
-    return;
-  }
-
-  const parents = (data.parents || []).map(p => personCard(p)).join("");
-  const marriages = (data.marriages || []).map(marriageBlock).join("");
-
-  document.getElementById('app').innerHTML = `
-    <div class="panel">
-      <div class="sub-title">当前人物</div>
-      <div class="row">${personCard(data.center)}</div>
+      <button onclick="openTreeForCurrent()">树图视图</button>
+      <a href="/editor.html" target="_blank">打开录入页</a>
     </div>
 
-    <div class="panel">
-      <div class="sub-title">父母</div>
-      <div class="row">${parents || '<div class="note">暂无父母信息</div>'}</div>
-    </div>
+    <div id="app"></div>
+  </div>
 
-    ${adoptionBlock(data.adoption)}
+  <script>
+    let currentMode = 'tree';
+    let treeSeq = 0;
+    let treeLineTimer = null;
 
-    <div class="sub-title">婚姻与子女</div>
-    ${marriages || '<div class="panel"><div class="note">暂无婚姻信息</div></div>'}
-  `;
-}
+    function escapeHtml(str) {
+      return String(str || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
 
-/**
- * 兼容不同树节点字段
- */
-function getNodeName(data) {
-  return data.name || data.person_name || data.label || data.title || "";
-}
+    function jsSafe(str) {
+      return String(str || '')
+        .replaceAll('\\', '\\\\')
+        .replaceAll("'", "\\'");
+    }
 
-function getNodeId(data) {
-  return data.id || data.person_id || "";
-}
+    async function requestJson(url, options = {}) {
+      const r = await fetch(url, options);
+      const text = await r.text();
 
-function getNodeType(data) {
-  return data.type || "person";
-}
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (e) {
+        data = null;
+      }
 
-function getNodeChildren(data) {
-  if (Array.isArray(data.children)) return data.children;
-  if (Array.isArray(data.nodes)) return data.nodes;
-  return [];
-}
+      if (!r.ok) {
+        throw new Error((data && (data.error || data.message)) || text || ('请求失败：' + r.status));
+      }
 
-function normalizeNode(data) {
-  // 根节点：/tree 返回的是 TreeNode，真正的人物在 data.person
-  if (data && data.person) {
-    const rootPerson = data.person || {};
-    return {
-      id: rootPerson.id || "",
-      name: rootPerson.name || "",
-      type: "person",
-      label: rootPerson.name || rootPerson.id || "",
-      children: (data.children || []).map(child => ({
-        id: child.id || "",
-        name: child.name || "",
-        type: "person",
-        label: child.name || child.id || "",
-        children: []
-      }))
-    };
-  }
+      return data;
+    }
 
-  // 普通人物节点
-  return {
-    id: data.id || "",
-    name: data.name || "",
-    type: "person",
-    label: data.name || data.id || "",
-    children: []
-  };
-}
-async function loadTree(id) {
-  try {
-    const data = await requestJson('/tree?id=' + encodeURIComponent(id));
-    console.log('tree data = ', data);
-    drawTree(data);
-  } catch (e) {
-    showError(e.message);
-  }
-}
-function estimateBoxWidth(d) {
-  const text = d.data.label || "";
-  const minWidth = 100;
-  const charWidth = 16;
-  return Math.max(minWidth, text.length * charWidth + 24);
-}
-function drawTree(rootData) {
-  const app = document.getElementById('app');
-  app.innerHTML = "";
+    function showError(message) {
+      document.getElementById('app').innerHTML =
+        `<div class="error-box">${escapeHtml(message || '加载失败')}</div>`;
+    }
 
-  if (!rootData) {
-    showEmpty('暂无树图数据');
-    return;
-  }
+    function showEmpty(message) {
+      document.getElementById('app').innerHTML =
+        `<div class="empty-box">${escapeHtml(message || '暂无数据')}</div>`;
+    }
 
-  const normalized = normalizeNode(rootData);
-  const root = d3.hierarchy(normalized);
+    function setCurrentId(id) {
+      if (!id) return;
+      document.getElementById('personId').value = id;
+      document.getElementById('suggest_list').innerHTML = '';
+    }
 
-  // 竖版树
-  const treeLayout = d3.tree().nodeSize([140, 100]);
-  treeLayout(root);
+    function jumpToView(id) {
+      if (!id) return;
+      setCurrentId(id);
+      currentMode = 'view';
+      loadCurrent();
+    }
 
-  const nodes = root.descendants();
-  const links = root.links();
+    function jumpToTree(id) {
+      if (!id) return;
+      setCurrentId(id);
+      currentMode = 'tree';
+      loadCurrent();
+    }
 
-  const minX = d3.min(nodes, d => d.x) || 0;
-  const maxX = d3.max(nodes, d => d.x) || 0;
-  const minY = d3.min(nodes, d => d.y) || 0;
-  const maxY = d3.max(nodes, d => d.y) || 0;
+    function openTreeForCurrent() {
+      currentMode = 'tree';
+      loadCurrent();
+    }
 
-  const margin = { top: 50, right: 80, bottom: 50, left: 80 };
-  const width = maxX - minX + margin.left + margin.right + 220;
-  const height = maxY - minY + margin.top + margin.bottom + 140;
+    async function suggestPerson() {
+      const name = document.getElementById('searchName').value.trim();
+      const box = document.getElementById('suggest_list');
 
-  const svg = d3.select('#app')
-    .append('svg')
-    .attr('width', Math.max(width, 900))
-    .attr('height', Math.max(height, 500));
+      if (!name) {
+        box.innerHTML = '';
+        return;
+      }
 
-  const g = svg.append('g')
-    .attr('transform', `translate(${margin.left - minX + 50}, ${margin.top - minY + 30})`);
+      try {
+        const list = await requestJson('/person/suggest?name=' + encodeURIComponent(name));
+        if (!Array.isArray(list) || list.length === 0) {
+          box.innerHTML = '';
+          return;
+        }
 
-  g.selectAll('.link')
-    .data(links)
-    .enter()
-    .append('path')
-    .attr('class', 'link')
-    .attr('d', d3.linkVertical()
-      .x(d => d.x)
-      .y(d => d.y)
-    );
+        box.innerHTML = list.map(p => `
+          <div class="suggest-item" onclick="pickSuggest('${jsSafe(p.id)}')">
+            ${escapeHtml(p.name || '')} (${escapeHtml(p.id || '')})
+          </div>
+        `).join('');
+      } catch (e) {
+        box.innerHTML = '';
+      }
+    }
 
-  const node = g.selectAll('.node')
-    .data(nodes)
-    .enter()
-    .append('g')
-    .attr('class', 'node')
-    .attr('transform', d => `translate(${d.x},${d.y})`)
-    .style('cursor', 'pointer')
-    .on('click', (_, d) => {
-      if (d.data.id) {
-        jumpTo(d.data.id);
+    function pickSuggest(id) {
+      setCurrentId(id);
+      currentMode = 'tree';
+      loadCurrent();
+    }
+
+    async function ensureDefaultPersonId() {
+      const input = document.getElementById('personId');
+      if (input.value.trim()) return;
+
+      try {
+        const data = await requestJson('/person/min_id');
+        let id = '';
+
+        if (typeof data === 'string') {
+          id = data;
+        } else if (data && typeof data === 'object') {
+          id = data.id || data.person_id || '';
+        }
+
+        if (id) {
+          input.value = id;
+        }
+      } catch (e) {
+        // 忽略，不影响页面继续使用
+      }
+    }
+
+    function personCard(p, cls = "") {
+      return `
+        <div class="card ${cls}" onclick="jumpToView('${jsSafe(p.id)}')">
+          <div>${escapeHtml(p.name || '')}</div>
+          <div class="note">${escapeHtml(p.id || '')}</div>
+        </div>
+      `;
+    }
+
+    function marriageBlock(m) {
+      const spouses = (m.spouses || []).map(p => personCard(p)).join('');
+      const children = (m.children || []).map(p => personCard(p, 'child')).join('');
+
+      return `
+        <div class="panel marriage">
+          <div class="sub-title">婚姻：${escapeHtml(m.marriage_id || '')}</div>
+          <div class="row">${spouses || '<div class="note">无配偶信息</div>'}</div>
+          <div class="note" style="margin-top:12px;">子女</div>
+          <div class="row" style="margin-top:8px;">${children || '<div class="note">暂无子女</div>'}</div>
+        </div>
+      `;
+    }
+
+    function adoptionBlock(a) {
+      if (!a) return '';
+
+      const fromHtml = (a.from || []).map(p => personCard(p)).join('');
+      const toHtml = (a.to || []).map(p => personCard(p)).join('');
+
+      return `
+        <div class="panel">
+          <div class="sub-title">过继信息</div>
+          <div class="note">原父母</div>
+          <div class="row" style="margin-top:8px;">${fromHtml || '<div class="note">无</div>'}</div>
+          <div class="note" style="margin-top:12px;">过继父母</div>
+          <div class="row" style="margin-top:8px;">${toHtml || '<div class="note">无</div>'}</div>
+          <div class="note" style="margin-top:12px;">备注：${escapeHtml(a.note || '')}</div>
+        </div>
+      `;
+    }
+
+    async function loadView(id) {
+      const data = await requestJson('/family_view?id=' + encodeURIComponent(id));
+
+      if (!data || !data.center) {
+        showEmpty('未找到该人物');
+        return;
+      }
+
+      const parents = (data.parents || []).map(p => personCard(p)).join('');
+      const marriages = (data.marriages || []).map(marriageBlock).join('');
+
+      document.getElementById('app').innerHTML = `
+        <div class="panel">
+          <div class="sub-title">当前人物</div>
+          <div class="row">${personCard(data.center)}</div>
+        </div>
+
+        <div class="panel">
+          <div class="sub-title">父母</div>
+          <div class="row">${parents || '<div class="note">暂无父母信息</div>'}</div>
+        </div>
+
+        ${adoptionBlock(data.adoption)}
+
+        <div class="section-title">婚姻与子女</div>
+        ${marriages || '<div class="panel"><div class="note">暂无婚姻信息</div></div>'}
+      `;
+    }
+
+    function uniqueById(list) {
+      const m = new Map();
+      for (const item of (list || [])) {
+        if (item && item.id && !m.has(item.id)) {
+          m.set(item.id, item);
+        }
+      }
+      return Array.from(m.values());
+    }
+
+    async function buildFamilyTreeData(id, visited = new Set(), depth = 0) {
+      if (!id || visited.has(id)) return null;
+      visited.add(id);
+
+      const data = await requestJson('/family_view?id=' + encodeURIComponent(id));
+      if (!data || !data.center) return null;
+
+      const marriages = [];
+      const allSpouses = [];
+      const spouseToMarriage = new Map();
+
+      for (const marriage of (data.marriages || [])) {
+        const spouses = uniqueById(
+          (marriage.spouses || []).filter(s => s && s.id !== data.center.id)
+        );
+
+        spouses.forEach(s => {
+          allSpouses.push(s);
+          if (s.id && !spouseToMarriage.has(s.id)) {
+            spouseToMarriage.set(s.id, marriage.marriage_id || '');
+          }
+        });
+
+        const children = [];
+        for (const child of (marriage.children || [])) {
+          const childTree = await buildFamilyTreeData(child.id, new Set(visited), depth + 1);
+          if (childTree) {
+            children.push(childTree);
+          } else if (child && child.id) {
+            children.push({
+              person: child,
+              spouses: [],
+              marriages: [],
+              spouseToMarriage: {},
+              parents: []
+            });
+          }
+        }
+
+        marriages.push({
+          marriage_id: marriage.marriage_id || '',
+          spouses,
+          children
+        });
+      }
+
+      return {
+        person: data.center,
+        spouses: uniqueById(allSpouses),
+        marriages,
+        spouseToMarriage: Object.fromEntries(spouseToMarriage.entries()),
+        parents: depth === 0 ? uniqueById(data.parents || []) : []
+      };
+    }
+
+    function createPersonNode(person, onClick) {
+      const div = document.createElement('div');
+      div.className = 'tree-person-card';
+      div.textContent = `${person?.name || person?.id || ''}${person?.id ? ` (${person.id})` : ''}`;
+      div.onclick = () => {
+        if (person?.id && typeof onClick === 'function') onClick(person.id);
+      };
+      return div;
+    }
+
+    function createSpouseNode(spouse, key, onClick) {
+      const div = document.createElement('div');
+      div.className = 'tree-spouse-card';
+      div.textContent = `配偶: ${spouse?.name || spouse?.id || ''}`;
+      div.dataset.anchorKey = key;
+      div.onclick = () => {
+        if (spouse?.id && typeof onClick === 'function') onClick(spouse.id);
+      };
+      return div;
+    }
+
+    function createParentNode(parent, onClick) {
+      const div = document.createElement('div');
+      div.className = 'tree-parent-card';
+      div.textContent = `${parent?.name || parent?.id || ''}${parent?.id ? ` (${parent.id})` : ''}`;
+      div.onclick = () => {
+        if (parent?.id && typeof onClick === 'function') onClick(parent.id);
+      };
+      return div;
+    }
+
+    function renderFamilyNode(node, opts = {}) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'tree-node';
+
+      const nodeId = `tn_${++treeSeq}`;
+      wrapper.dataset.nodeId = nodeId;
+
+      if (opts.showParents && (node.parents || []).length > 0) {
+        const parentsRow = document.createElement('div');
+        parentsRow.className = 'tree-parents-row';
+
+        (node.parents || []).forEach(parent => {
+          parentsRow.appendChild(createParentNode(parent, jumpToView));
+        });
+
+        wrapper.appendChild(parentsRow);
+      }
+
+      const familyRow = document.createElement('div');
+      familyRow.className = 'tree-family-row';
+
+      const selfCard = createPersonNode(node.person, jumpToView);
+      selfCard.dataset.selfAnchor = nodeId;
+      familyRow.appendChild(selfCard);
+
+      (node.spouses || []).forEach(spouse => {
+        const marriageId = node.spouseToMarriage?.[spouse.id] || '';
+        const anchorKey = `${nodeId}__${marriageId}`;
+        familyRow.appendChild(createSpouseNode(spouse, anchorKey, jumpToView));
+      });
+
+      wrapper.appendChild(familyRow);
+
+      if ((node.marriages || []).length > 0) {
+        const branchesEl = document.createElement('div');
+        branchesEl.className = 'tree-branches';
+
+        node.marriages.forEach((marriage) => {
+          const branchEl = document.createElement('div');
+          branchEl.className = 'tree-branch';
+          branchEl.dataset.anchorKey = `${nodeId}__${marriage.marriage_id || ''}`;
+
+          const children = marriage.children || [];
+          if (children.length === 1) {
+            branchEl.appendChild(renderFamilyNode(children[0], { showParents: false }));
+          } else if (children.length > 1) {
+            const subWrap = document.createElement('div');
+            subWrap.className = 'tree-branches';
+
+            children.forEach((childNode) => {
+              const childBranch = document.createElement('div');
+              childBranch.className = 'tree-branch';
+              childBranch.appendChild(renderFamilyNode(childNode, { showParents: false }));
+              subWrap.appendChild(childBranch);
+            });
+
+            branchEl.appendChild(subWrap);
+          }
+
+          branchesEl.appendChild(branchEl);
+        });
+
+        wrapper.appendChild(branchesEl);
+      }
+
+      return wrapper;
+    }
+
+    function getBoardRelativeRect(el, boardRect) {
+      const rect = el.getBoundingClientRect();
+      return {
+        x: rect.left - boardRect.left + rect.width / 2,
+        y: rect.top - boardRect.top + rect.height / 2,
+        top: rect.top - boardRect.top,
+        bottom: rect.bottom - boardRect.top,
+        left: rect.left - boardRect.left,
+        right: rect.right - boardRect.left,
+        width: rect.width,
+        height: rect.height
+      };
+    }
+
+    function findBranchByAnchorKey(board, key) {
+      const branches = board.querySelectorAll('.tree-branch[data-anchor-key]');
+      for (const el of branches) {
+        if (el.dataset.anchorKey === key) return el;
+      }
+      return null;
+    }
+
+    function drawTreeLines() {
+      const board = document.getElementById('treeBoard');
+      const svg = document.getElementById('treeSvg');
+      if (!board || !svg) return;
+
+      const boardRect = board.getBoundingClientRect();
+      const width = Math.ceil(board.scrollWidth || boardRect.width || 0);
+      const height = Math.ceil(board.scrollHeight || boardRect.height || 0);
+
+      svg.setAttribute('width', width);
+      svg.setAttribute('height', height);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.innerHTML = '';
+
+      // 根节点父母到当前人
+      const rootNode = board.querySelector('.tree-node[data-node-id]');
+      if (rootNode) {
+        const parentsRow = rootNode.querySelector(':scope > .tree-parents-row');
+        const selfCard = rootNode.querySelector(':scope > .tree-family-row [data-self-anchor]');
+        if (parentsRow && selfCard) {
+          const p = getBoardRelativeRect(parentsRow, boardRect);
+          const s = getBoardRelativeRect(selfCard, boardRect);
+
+          const startX = p.x;
+          const startY = p.bottom;
+          const endX = s.x;
+          const endY = s.top;
+
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute(
+            'd',
+            `M ${startX} ${startY} L ${startX} ${(startY + endY) / 2} L ${endX} ${(startY + endY) / 2} L ${endX} ${endY}`
+          );
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#b0b0b0');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(path);
+        }
+      }
+
+      // 配偶到对应孩子分支
+      const anchors = board.querySelectorAll('.tree-spouse-card[data-anchor-key]');
+      anchors.forEach(anchorEl => {
+        const key = anchorEl.dataset.anchorKey;
+        const branchEl = findBranchByAnchorKey(board, key);
+        if (!branchEl) return;
+
+        const a = getBoardRelativeRect(anchorEl, boardRect);
+        const b = getBoardRelativeRect(branchEl, boardRect);
+
+        const startX = a.x;
+        const startY = a.bottom;
+        const endX = b.x;
+        const endY = b.top;
+        const midY = startY + Math.max(18, (endY - startY) * 0.35);
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute(
+          'd',
+          `M ${startX} ${startY} L ${startX} ${midY} L ${endX} ${midY} L ${endX} ${endY}`
+        );
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', '#999');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(path);
+      });
+    }
+
+    function scheduleDrawTreeLines() {
+      clearTimeout(treeLineTimer);
+      treeLineTimer = setTimeout(drawTreeLines, 30);
+    }
+
+    async function loadTree(id) {
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="tree-board-wrap">
+          <div class="tree-loading">正在生成族谱视图...</div>
+        </div>
+      `;
+
+      treeSeq = 0;
+      const treeData = await buildFamilyTreeData(id, new Set(), 0);
+
+      if (!treeData) {
+        showEmpty('暂无树图数据');
+        return;
+      }
+
+      app.innerHTML = `
+        <div class="tree-board-wrap" id="treeBoardWrap">
+          <div id="treeBoard" class="tree-board">
+            <svg id="treeSvg" class="tree-svg"></svg>
+          </div>
+        </div>
+      `;
+
+      const treeBoard = document.getElementById('treeBoard');
+      treeBoard.appendChild(renderFamilyNode(treeData, { showParents: true }));
+
+      scheduleDrawTreeLines();
+      requestAnimationFrame(scheduleDrawTreeLines);
+
+      const wrap = document.getElementById('treeBoardWrap');
+      if (wrap) {
+        wrap.addEventListener('scroll', scheduleDrawTreeLines, { passive: true });
+      }
+    }
+
+    async function loadCurrent() {
+      const id = document.getElementById('personId').value.trim();
+      if (!id) {
+        showEmpty('请先输入人物ID');
+        return;
+      }
+
+      try {
+        if (currentMode === 'tree') {
+          await loadTree(id);
+        } else {
+          await loadView(id);
+        }
+      } catch (e) {
+        showError(e.message || '加载失败');
+      }
+    }
+
+    document.addEventListener('click', function (e) {
+      const suggestWrap = document.querySelector('.search-wrap');
+      if (suggestWrap && !suggestWrap.contains(e.target)) {
+        document.getElementById('suggest_list').innerHTML = '';
       }
     });
 
-  node.append('rect')
-    .attr('x', d => -estimateBoxWidth(d) / 2)
-    .attr('y', -22)
-    .attr('width', d => estimateBoxWidth(d))
-    .attr('height', 44)
-    .attr('class', 'person-box');
+    document.getElementById('personId').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        currentMode = 'tree';
+        loadCurrent();
+      }
+    });
 
-  node.append('text')
-    .attr('class', 'node-text')
-    .text(d => d.data.label || '');
-}
+    document.getElementById('searchName').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        const first = document.querySelector('.suggest-item');
+        if (first) first.click();
+      }
+    });
 
-async function loadCurrent() {
-  const id = document.getElementById('personId').value.trim();
+    window.addEventListener('resize', scheduleDrawTreeLines);
 
-  if (!id) {
-    showEmpty('请先输入人物ID');
-    return;
-  }
+    window.addEventListener('load', async function () {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('id');
+      const mode = params.get('mode');
 
-  try {
-    if (currentMode === 'tree') {
-      await loadTree(id);
-    } else {
-      await loadView(id);
-    }
-  } catch (e) {
-    showError(e.message);
-  }
-}
-</script>
+      if (id) {
+        document.getElementById('personId').value = id;
+      } else {
+        await ensureDefaultPersonId();
+      }
 
+      currentMode = mode === 'view' ? 'view' : 'tree';
+
+      if (document.getElementById('personId').value.trim()) {
+        loadCurrent();
+      }
+    });
+  </script>
 </body>
 </html>

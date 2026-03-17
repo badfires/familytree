@@ -36,7 +36,7 @@ func main() {
 	http.HandleFunc("/graph", handler.GraphHandler)
 	http.HandleFunc("/family_graph", handler.FamilyGraphHandler)
 	http.HandleFunc("/family_view", handler.FamilyViewHandler)
-
+http.HandleFunc("/person/min_id", handler.GetMinPersonIDHandler)
 	log.Println("server started at :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

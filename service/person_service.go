@@ -161,3 +161,20 @@ func toViewPerson(p *model.Person) model.ViewPerson {
 		Note:   p.Note,
 	}
 }
+func GetMinPersonID() (string, error) {
+	query := `
+		SELECT id
+		FROM people
+		WHERE id IS NOT NULL
+		  AND id <> ''
+		ORDER BY CAST(SUBSTR(id, 2) AS INTEGER), id
+		LIMIT 1
+	`
+
+	var id string
+	err := database.DB.QueryRow(query).Scan(&id)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}

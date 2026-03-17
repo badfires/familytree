@@ -1,8 +1,8 @@
 package model
 
 type TreeNode struct {
-	Person   *Person  `json:"person"`
-	Parents  []Person `json:"parents"`
-	Spouses  []Person `json:"spouses"`
-	Children []Person `json:"children"`
+	ID       string      `json:"id,omitempty"`
+	Label    string      `json:"label"`
+	Type     string      `json:"type"`
+	Children []*TreeNode `json:"children,omitempty"`
 }
