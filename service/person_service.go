@@ -9,53 +9,62 @@ import (
 	"family-tree/model"
 )
 
-func CreatePerson(p model.Person) error {
-	if strings.TrimSpace(p.ID) == "" {
-		return errors.New("person id is required")
-	}
+func CreatePerson(p model.Person) (*model.Person, error) {
 	if strings.TrimSpace(p.Name) == "" {
-		return errors.New("person name is required")
+		return nil, errors.New("person name is required")
 	}
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	newID, err := NextID(tx, SeqTypePerson, PersonPrefix)
+	if err != nil {
+		return nil, err
+	}
+	p.ID = newID
 
 	query := `
-	INSERT INTO people
-	(id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note)
-	VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-
-	_, err := database.DB.Exec(query,
-		p.ID, p.Name, p.Gender, p.BirthDate, p.BirthPlace, p.DeathDate,
-		p.BurialPlace, p.FatherID, p.MotherID, p.Bio, p.Note,
+		INSERT INTO people (
+			id,name,gender,birth_date,birth_place,death_date,burial_place,
+			father_id,mother_id,bio,note
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+	`
+	_, err = tx.Exec(
+		query,
+		p.ID, p.Name, p.Gender, p.BirthDate, p.BirthPlace,
+		p.DeathDate, p.BurialPlace, p.FatherID, p.MotherID, p.Bio, p.Note,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 func UpdatePerson(p model.Person) error {
 	if strings.TrimSpace(p.ID) == "" {
 		return errors.New("person id is required")
 	}
-
 	query := `
-	UPDATE people SET
-		name=?,
-		gender=?,
-		birth_date=?,
-		birth_place=?,
-		death_date=?,
-		burial_place=?,
-		father_id=?,
-		mother_id=?,
-		bio=?,
-		note=?,
-		updated_at=CURRENT_TIMESTAMP
-	WHERE id=?`
-
-	_, err := database.DB.Exec(query,
+		UPDATE people
+		SET name=?, gender=?, birth_date=?, birth_place=?, death_date=?,
+		    burial_place=?, father_id=?, mother_id=?, bio=?, note=?,
+		    updated_at=CURRENT_TIMESTAMP
+		WHERE id=?
+	`
+	_, err := database.DB.Exec(
+		query,
 		p.Name, p.Gender, p.BirthDate, p.BirthPlace, p.DeathDate,
 		p.BurialPlace, p.FatherID, p.MotherID, p.Bio, p.Note, p.ID,
 	)
 	return err
 }
-
 func GetPerson(id string) (*model.Person, error) {
 	query := `
 	SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note

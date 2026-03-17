@@ -20,10 +20,12 @@ func CreateAdoptionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := service.CreateAdoption(a); err != nil {
+	created, err := service.CreateAdoption(a)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Write([]byte("ok"))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(created)
 }

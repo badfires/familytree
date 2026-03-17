@@ -20,12 +20,14 @@ func CreateMarriageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := service.CreateMarriage(m); err != nil {
+	created, err := service.CreateMarriage(m)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Write([]byte("ok"))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(created)
 }
 
 func GetMarriageHandler(w http.ResponseWriter, r *http.Request) {

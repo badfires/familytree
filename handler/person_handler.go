@@ -20,12 +20,14 @@ func CreatePersonHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := service.CreatePerson(p); err != nil {
+	created, err := service.CreatePerson(p)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Write([]byte("ok"))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(created)
 }
 
 func GetPersonHandler(w http.ResponseWriter, r *http.Request) {

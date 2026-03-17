@@ -6,13 +6,17 @@ import (
 
 	"family-tree/database"
 	"family-tree/handler"
+	"family-tree/service"
 )
 
 func main() {
 	database.InitDB()
 
-	http.Handle("/", http.FileServer(http.Dir("./")))
+	if err := service.EnsureSequencesInitialized(); err != nil {
+		log.Fatal(err)
+	}
 
+	http.Handle("/", http.FileServer(http.Dir("./")))
 	http.HandleFunc("/person/create", handler.CreatePersonHandler)
 	http.HandleFunc("/person/get", handler.GetPersonHandler)
 	http.HandleFunc("/person/update", handler.UpdatePersonHandler)
@@ -25,6 +29,8 @@ func main() {
 	http.HandleFunc("/marriage/add_child", handler.AddMarriageChildHandler)
 
 	http.HandleFunc("/adoption/create", handler.CreateAdoptionHandler)
+		http.HandleFunc("/person/export_template", handler.ExportPersonTemplateHandler)
+	http.HandleFunc("/person/import_csv", handler.ImportPersonCSVHandler)
 
 	http.HandleFunc("/tree", handler.GetTreeHandler)
 	http.HandleFunc("/graph", handler.GraphHandler)

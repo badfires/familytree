@@ -1,0 +1,291 @@
+package service
+
+import (
+	"bytes"
+	"encoding/csv"
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"family-tree/database"
+	"family-tree/model"
+)
+
+var personIDRegexp = regexp.MustCompile(`^p(\d+)$`)
+
+type PersonCSVImportResult struct {
+	Success  bool   `json:"success"`
+	Imported int    `json:"imported"`
+	Message  string `json:"message,omitempty"`
+	Row      int    `json:"row,omitempty"`
+}
+
+func GetNextPersonID() (string, error) {
+	rows, err := database.DB.Query(`SELECT id FROM people`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	maxVal := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", err
+		}
+		n := extractPersonIDNumber(id)
+		if n > maxVal {
+			maxVal = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("p%d", maxVal+1), nil
+}
+
+func extractPersonIDNumber(id string) int {
+	id = strings.TrimSpace(id)
+	matches := personIDRegexp.FindStringSubmatch(id)
+	if len(matches) != 2 {
+		return 0
+	}
+	n, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func BuildPersonTemplateCSV() ([]byte, error) {
+	nextID, err := GetNextPersonID()
+	if err != nil {
+		return nil, err
+	}
+	start := extractPersonIDNumber(nextID)
+	if start <= 0 {
+		start = 1
+	}
+
+	buf := &bytes.Buffer{}
+	w := csv.NewWriter(buf)
+
+	header := []string{
+		"id", "name", "gender", "birth_date", "birth_place",
+		"death_date", "burial_place", "father_id", "mother_id", "bio", "note",
+	}
+	if err := w.Write(header); err != nil {
+		return nil, err
+	}
+
+	sampleRows := [][]string{
+		{fmt.Sprintf("p%d", start), "张三", "male", "1950-01-01", "北京", "", "", "", "", "人物简介", "备注"},
+		{fmt.Sprintf("p%d", start+1), "李四", "female", "1952-03-01", "上海", "", "", "", "", "", ""},
+		{fmt.Sprintf("p%d", start+2), "张小明", "male", "1980-06-01", "广州", "", "", fmt.Sprintf("p%d", start), fmt.Sprintf("p%d", start+1), "", ""},
+	}
+	for _, row := range sampleRows {
+		if err := w.Write(row); err != nil {
+			return nil, err
+		}
+	}
+
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
+	cr := csv.NewReader(r)
+	cr.TrimLeadingSpace = true
+
+	rows, err := cr.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) < 2 {
+		return nil, errors.New("csv内容为空")
+	}
+
+	expectedHeader := []string{
+		"id", "name", "gender", "birth_date", "birth_place",
+		"death_date", "burial_place", "father_id", "mother_id", "bio", "note",
+	}
+	if err := validateHeader(rows[0], expectedHeader); err != nil {
+		return nil, err
+	}
+
+	// 先拿数据库已有人物ID
+	existingIDs, err := loadExistingPersonIDs()
+	if err != nil {
+		return nil, err
+	}
+
+	// 先解析 CSV，并做基础校验
+	type personRow struct {
+		rowNum int
+		person model.Person
+	}
+	var parsed []personRow
+	csvIDs := make(map[string]struct{})
+
+	for i := 1; i < len(rows); i++ {
+		rowNum := i + 1
+		row := normalizeRow(rows[i], len(expectedHeader))
+
+		p := model.Person{
+			ID:          strings.TrimSpace(row[0]),
+			Name:        strings.TrimSpace(row[1]),
+			Gender:      strings.TrimSpace(row[2]),
+			BirthDate:   strings.TrimSpace(row[3]),
+			BirthPlace:  strings.TrimSpace(row[4]),
+			DeathDate:   strings.TrimSpace(row[5]),
+			BurialPlace: strings.TrimSpace(row[6]),
+			FatherID:    strings.TrimSpace(row[7]),
+			MotherID:    strings.TrimSpace(row[8]),
+			Bio:         strings.TrimSpace(row[9]),
+			Note:        strings.TrimSpace(row[10]),
+		}
+
+		// 跳过整行空白
+		if isEmptyPersonRow(p) {
+			continue
+		}
+
+		if p.ID == "" {
+			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: id不能为空", rowNum)
+		}
+		if !personIDRegexp.MatchString(p.ID) {
+			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: id格式必须为 p数字，例如 p38", rowNum)
+		}
+		if p.Name == "" {
+			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: name不能为空", rowNum)
+		}
+		if _, ok := csvIDs[p.ID]; ok {
+			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: csv内id重复: %s", rowNum, p.ID)
+		}
+		if _, ok := existingIDs[p.ID]; ok {
+			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: id已存在于系统中: %s", rowNum, p.ID)
+		}
+		csvIDs[p.ID] = struct{}{}
+		parsed = append(parsed, personRow{rowNum: rowNum, person: p})
+	}
+
+	// 再校验父母引用
+	allKnownIDs := make(map[string]struct{}, len(existingIDs)+len(csvIDs))
+	for id := range existingIDs {
+		allKnownIDs[id] = struct{}{}
+	}
+	for id := range csvIDs {
+		allKnownIDs[id] = struct{}{}
+	}
+
+	for _, item := range parsed {
+		p := item.person
+		if p.FatherID != "" {
+			if _, ok := allKnownIDs[p.FatherID]; !ok {
+				return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行: father_id不存在: %s", item.rowNum, p.FatherID)
+			}
+		}
+		if p.MotherID != "" {
+			if _, ok := allKnownIDs[p.MotherID]; !ok {
+				return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行: mother_id不存在: %s", item.rowNum, p.MotherID)
+			}
+		}
+	}
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	query := `
+		INSERT INTO people (
+			id,name,gender,birth_date,birth_place,death_date,burial_place,
+			father_id,mother_id,bio,note
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+	`
+
+	imported := 0
+	for _, item := range parsed {
+		p := item.person
+		_, err := tx.Exec(
+			query,
+			p.ID, p.Name, p.Gender, p.BirthDate, p.BirthPlace,
+			p.DeathDate, p.BurialPlace, p.FatherID, p.MotherID, p.Bio, p.Note,
+		)
+		if err != nil {
+			return &PersonCSVImportResult{Success: false, Row: item.rowNum}, fmt.Errorf("第%d行插入失败: %w", item.rowNum, err)
+		}
+		imported++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &PersonCSVImportResult{
+		Success:  true,
+		Imported: imported,
+		Message:  fmt.Sprintf("成功导入 %d 条人物数据", imported),
+	}, nil
+}
+
+func validateHeader(actual, expected []string) error {
+	if len(actual) < len(expected) {
+		return fmt.Errorf("csv表头列数不正确")
+	}
+	for i := range expected {
+		if strings.TrimSpace(actual[i]) != expected[i] {
+			return fmt.Errorf("csv表头不正确，第%d列应为 %s，实际为 %s", i+1, expected[i], strings.TrimSpace(actual[i]))
+		}
+	}
+	return nil
+}
+
+func normalizeRow(row []string, expectedLen int) []string {
+	if len(row) >= expectedLen {
+		return row[:expectedLen]
+	}
+	out := make([]string, expectedLen)
+	copy(out, row)
+	return out
+}
+
+func isEmptyPersonRow(p model.Person) bool {
+	return p.ID == "" &&
+		p.Name == "" &&
+		p.Gender == "" &&
+		p.BirthDate == "" &&
+		p.BirthPlace == "" &&
+		p.DeathDate == "" &&
+		p.BurialPlace == "" &&
+		p.FatherID == "" &&
+		p.MotherID == "" &&
+		p.Bio == "" &&
+		p.Note == ""
+}
+
+func loadExistingPersonIDs() (map[string]struct{}, error) {
+	rows, err := database.DB.Query(`SELECT id FROM people`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		result[id] = struct{}{}
+	}
+	return result, rows.Err()
+}

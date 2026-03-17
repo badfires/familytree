@@ -8,10 +8,12 @@ body { font-family: sans-serif; padding: 20px; }
 h1 { margin-top: 0; }
 h2 { margin-top: 28px; }
 label { display:block; margin:8px 0 4px; }
-input, textarea { width: 360px; padding: 6px; }
+input, textarea { width: 360px; padding: 6px; box-sizing: border-box; }
 button { margin-top: 10px; padding: 8px 16px; margin-right: 8px; }
 .row { margin-bottom: 12px; }
-.result { margin-top: 10px; color: green; }
+.result { margin-top: 10px; color: green; white-space: pre-wrap; }
+.error { color: #c62828; }
+.help { color: #666; font-size: 12px; margin-top: 4px; }
 .suggest-box {
   width: 374px;
   border: 1px solid #ddd;
@@ -32,6 +34,10 @@ button { margin-top: 10px; padding: 8px 16px; margin-right: 8px; }
   border-radius: 8px;
   margin-bottom: 20px;
 }
+.inline-tip {
+  color: #888;
+  font-size: 12px;
+}
 </style>
 </head>
 <body>
@@ -40,13 +46,20 @@ button { margin-top: 10px; padding: 8px 16px; margin-right: 8px; }
 
 <div class="panel">
   <h2>人物搜索联想</h2>
-  <div class="row"><label>姓名关键字</label><input id="search_name" oninput="suggestPerson()"></div>
+  <div class="row">
+    <label>姓名关键字</label>
+    <input id="search_name" oninput="suggestPerson()">
+  </div>
   <div id="suggest_list" class="suggest-box"></div>
 </div>
 
 <div class="panel">
   <h2>新增 / 编辑人物</h2>
-  <div class="row"><label>ID</label><input id="p_id"></div>
+  <div class="row">
+    <label>ID</label>
+    <input id="p_id" placeholder="新增时可留空，系统自动生成">
+    <div class="help">新增时不用填写，保存成功后会自动回填；读取 / 更新时需要填写已有 ID。</div>
+  </div>
   <div class="row"><label>姓名</label><input id="p_name"></div>
   <div class="row"><label>性别</label><input id="p_gender" placeholder="male / female"></div>
   <div class="row"><label>出生日期</label><input id="p_birth_date"></div>
@@ -62,10 +75,31 @@ button { margin-top: 10px; padding: 8px 16px; margin-right: 8px; }
   <button onclick="updatePerson()">更新人物</button>
   <div id="person_result" class="result"></div>
 </div>
+<div class="panel">
+  <h2>人物模板与CSV导入</h2>
 
+  <div class="row">
+    <button type="button" onclick="downloadPeopleTemplate()">下载人物CSV模板</button>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <label>选择 people.csv</label>
+    <input type="file" id="people_csv_file" accept=".csv">
+  </div>
+
+  <div class="row">
+    <button type="button" onclick="importPeopleCSV()">导入人物CSV</button>
+  </div>
+
+  <div id="people_csv_result" class="result"></div>
+</div>
 <div class="panel">
   <h2>新增 / 编辑婚姻</h2>
-  <div class="row"><label>婚姻ID</label><input id="m_id"></div>
+  <div class="row">
+    <label>婚姻ID</label>
+    <input id="m_id" placeholder="新增时可留空，系统自动生成">
+    <div class="help">新增时不用填写，保存成功后会自动回填；读取 / 更新时需要填写已有 ID。</div>
+  </div>
   <div class="row"><label>丈夫ID</label><input id="m_husband"></div>
   <div class="row"><label>妻子ID</label><input id="m_wife"></div>
   <div class="row"><label>结婚日期</label><input id="m_date"></div>
@@ -86,7 +120,11 @@ button { margin-top: 10px; padding: 8px 16px; margin-right: 8px; }
 
 <div class="panel">
   <h2>新增过继</h2>
-  <div class="row"><label>过继ID</label><input id="a_id"></div>
+  <div class="row">
+    <label>过继ID</label>
+    <input id="a_id" placeholder="新增时可留空，系统自动生成">
+    <div class="help">新增时不用填写，保存成功后会自动回填。</div>
+  </div>
   <div class="row"><label>人物ID</label><input id="a_person"></div>
   <div class="row"><label>原父ID</label><input id="a_ff"></div>
   <div class="row"><label>原母ID</label><input id="a_fm"></div>
@@ -98,6 +136,21 @@ button { margin-top: 10px; padding: 8px 16px; margin-right: 8px; }
 </div>
 
 <script>
+function setResult(id, message, isError = false) {
+  const el = document.getElementById(id);
+  el.className = 'result' + (isError ? ' error' : '');
+  el.innerText = message || '';
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function fillPersonForm(p) {
   document.getElementById('p_id').value = p.id || '';
   document.getElementById('p_name').value = p.name || '';
@@ -120,6 +173,34 @@ function fillMarriageForm(m) {
   document.getElementById('m_note').value = m.note || '';
 }
 
+function fillAdoptionForm(a) {
+  document.getElementById('a_id').value = a.id || '';
+  document.getElementById('a_person').value = a.person_id || '';
+  document.getElementById('a_ff').value = a.from_father_id || '';
+  document.getElementById('a_fm').value = a.from_mother_id || '';
+  document.getElementById('a_tf').value = a.to_father_id || '';
+  document.getElementById('a_tm').value = a.to_mother_id || '';
+  document.getElementById('a_note').value = a.note || '';
+}
+
+async function requestJson(url, options = {}) {
+  const r = await fetch(url, options);
+  const text = await r.text();
+
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (e) {
+    data = null;
+  }
+
+  if (!r.ok) {
+    throw new Error((data && data.error) || text || ('请求失败：' + r.status));
+  }
+
+  return data;
+}
+
 async function suggestPerson() {
   const name = document.getElementById('search_name').value.trim();
   const box = document.getElementById('suggest_list');
@@ -129,14 +210,16 @@ async function suggestPerson() {
     return;
   }
 
-  const r = await fetch('/person/suggest?name=' + encodeURIComponent(name));
-  const list = await r.json();
-
-  box.innerHTML = (list || []).map(p => `
-    <div class="suggest-item" onclick="pickPersonById('${p.id}')">
-      ${escapeHtml(p.name || '')} (${escapeHtml(p.id || '')})
-    </div>
-  `).join('');
+  try {
+    const list = await requestJson('/person/suggest?name=' + encodeURIComponent(name));
+    box.innerHTML = (list || []).map(p => `
+      <div class="suggest-item" onclick="pickPersonById('${String(p.id || '').replaceAll("'", "\\'")}')">
+        ${escapeHtml(p.name || '')} (${escapeHtml(p.id || '')})
+      </div>
+    `).join('');
+  } catch (e) {
+    box.innerHTML = '';
+  }
 }
 
 async function pickPersonById(id) {
@@ -145,128 +228,229 @@ async function pickPersonById(id) {
   document.getElementById('suggest_list').innerHTML = "";
 }
 
-async function createPerson() {
-  const body = collectPerson();
-  const r = await fetch('/person/create', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
-  document.getElementById('person_result').innerText = await r.text();
-}
-
-async function loadPerson() {
-  const id = document.getElementById('p_id').value.trim();
-  if (!id) return;
-  const r = await fetch('/person/get?id=' + encodeURIComponent(id));
-  const p = await r.json();
-  fillPersonForm(p);
-  document.getElementById('person_result').innerText = '已读取';
-}
-
-async function updatePerson() {
-  const body = collectPerson();
-  const r = await fetch('/person/update', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
-  document.getElementById('person_result').innerText = await r.text();
-}
-
 function collectPerson() {
   return {
-    id: document.getElementById('p_id').value,
-    name: document.getElementById('p_name').value,
-    gender: document.getElementById('p_gender').value,
-    birth_date: document.getElementById('p_birth_date').value,
-    birth_place: document.getElementById('p_birth_place').value,
-    death_date: document.getElementById('p_death_date').value,
-    burial_place: document.getElementById('p_burial_place').value,
-    father_id: document.getElementById('p_father').value,
-    mother_id: document.getElementById('p_mother').value,
-    bio: document.getElementById('p_bio').value,
-    note: document.getElementById('p_note').value
+    id: document.getElementById('p_id').value.trim(),
+    name: document.getElementById('p_name').value.trim(),
+    gender: document.getElementById('p_gender').value.trim(),
+    birth_date: document.getElementById('p_birth_date').value.trim(),
+    birth_place: document.getElementById('p_birth_place').value.trim(),
+    death_date: document.getElementById('p_death_date').value.trim(),
+    burial_place: document.getElementById('p_burial_place').value.trim(),
+    father_id: document.getElementById('p_father').value.trim(),
+    mother_id: document.getElementById('p_mother').value.trim(),
+    bio: document.getElementById('p_bio').value.trim(),
+    note: document.getElementById('p_note').value.trim()
   };
-}
-
-async function createMarriage() {
-  const body = collectMarriage();
-  const r = await fetch('/marriage/create', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
-  document.getElementById('marriage_result').innerText = await r.text();
-}
-
-async function loadMarriage() {
-  const id = document.getElementById('m_id').value.trim();
-  if (!id) return;
-  const r = await fetch('/marriage/get?id=' + encodeURIComponent(id));
-  const m = await r.json();
-  fillMarriageForm(m);
-  document.getElementById('marriage_result').innerText = '已读取';
-}
-
-async function updateMarriage() {
-  const body = collectMarriage();
-  const r = await fetch('/marriage/update', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
-  document.getElementById('marriage_result').innerText = await r.text();
 }
 
 function collectMarriage() {
   return {
-    id: document.getElementById('m_id').value,
-    husband_id: document.getElementById('m_husband').value,
-    wife_id: document.getElementById('m_wife').value,
-    marriage_date: document.getElementById('m_date').value,
-    note: document.getElementById('m_note').value
+    id: document.getElementById('m_id').value.trim(),
+    husband_id: document.getElementById('m_husband').value.trim(),
+    wife_id: document.getElementById('m_wife').value.trim(),
+    marriage_date: document.getElementById('m_date').value.trim(),
+    note: document.getElementById('m_note').value.trim()
   };
+}
+
+function collectAdoption() {
+  return {
+    id: document.getElementById('a_id').value.trim(),
+    person_id: document.getElementById('a_person').value.trim(),
+    from_father_id: document.getElementById('a_ff').value.trim(),
+    from_mother_id: document.getElementById('a_fm').value.trim(),
+    to_father_id: document.getElementById('a_tf').value.trim(),
+    to_mother_id: document.getElementById('a_tm').value.trim(),
+    note: document.getElementById('a_note').value.trim()
+  };
+}
+
+async function createPerson() {
+  try {
+    const created = await requestJson('/person/create', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(collectPerson())
+    });
+    fillPersonForm(created || {});
+    setResult('person_result', '保存成功，系统编号：' + (created?.id || ''));
+  } catch (e) {
+    setResult('person_result', e.message, true);
+  }
+}
+
+async function loadPerson() {
+  const id = document.getElementById('p_id').value.trim();
+  if (!id) {
+    setResult('person_result', '请先输入人物ID', true);
+    return;
+  }
+
+  try {
+    const p = await requestJson('/person/get?id=' + encodeURIComponent(id));
+    fillPersonForm(p || {});
+    setResult('person_result', '已读取人物：' + id);
+  } catch (e) {
+    setResult('person_result', e.message, true);
+  }
+}
+
+async function updatePerson() {
+  const body = collectPerson();
+  if (!body.id) {
+    setResult('person_result', '更新人物必须先填写人物ID', true);
+    return;
+  }
+
+  try {
+    const r = await fetch('/person/update', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      throw new Error(text || '更新失败');
+    }
+    setResult('person_result', text || ('更新成功：' + body.id));
+  } catch (e) {
+    setResult('person_result', e.message, true);
+  }
+}
+
+async function createMarriage() {
+  try {
+    const created = await requestJson('/marriage/create', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(collectMarriage())
+    });
+    fillMarriageForm(created || {});
+    setResult('marriage_result', '保存成功，系统编号：' + (created?.id || ''));
+  } catch (e) {
+    setResult('marriage_result', e.message, true);
+  }
+}
+
+async function loadMarriage() {
+  const id = document.getElementById('m_id').value.trim();
+  if (!id) {
+    setResult('marriage_result', '请先输入婚姻ID', true);
+    return;
+  }
+
+  try {
+    const m = await requestJson('/marriage/get?id=' + encodeURIComponent(id));
+    fillMarriageForm(m || {});
+    setResult('marriage_result', '已读取婚姻：' + id);
+  } catch (e) {
+    setResult('marriage_result', e.message, true);
+  }
+}
+
+async function updateMarriage() {
+  const body = collectMarriage();
+  if (!body.id) {
+    setResult('marriage_result', '更新婚姻必须先填写婚姻ID', true);
+    return;
+  }
+
+  try {
+    const r = await fetch('/marriage/update', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      throw new Error(text || '更新失败');
+    }
+    setResult('marriage_result', text || ('更新成功：' + body.id));
+  } catch (e) {
+    setResult('marriage_result', e.message, true);
+  }
 }
 
 async function addMarriageChild() {
-  const marriageID = document.getElementById('mc_marriage').value;
-  const childID = document.getElementById('mc_child').value;
+  const marriageID = document.getElementById('mc_marriage').value.trim();
+  const childID = document.getElementById('mc_child').value.trim();
 
-  const r = await fetch('/marriage/add_child?marriage_id=' + encodeURIComponent(marriageID) + '&child_id=' + encodeURIComponent(childID), {
-    method: 'POST'
-  });
+  if (!marriageID || !childID) {
+    setResult('mc_result', '婚姻ID和子女ID都不能为空', true);
+    return;
+  }
 
-  document.getElementById('mc_result').innerText = await r.text();
+  try {
+    const r = await fetch(
+      '/marriage/add_child?marriage_id=' + encodeURIComponent(marriageID) +
+      '&child_id=' + encodeURIComponent(childID),
+      { method: 'POST' }
+    );
+    const text = await r.text();
+    if (!r.ok) {
+      throw new Error(text || '绑定失败');
+    }
+    setResult('mc_result', text || '绑定成功');
+  } catch (e) {
+    setResult('mc_result', e.message, true);
+  }
 }
 
 async function createAdoption() {
-  const body = {
-    id: document.getElementById('a_id').value,
-    person_id: document.getElementById('a_person').value,
-    from_father_id: document.getElementById('a_ff').value,
-    from_mother_id: document.getElementById('a_fm').value,
-    to_father_id: document.getElementById('a_tf').value,
-    to_mother_id: document.getElementById('a_tm').value,
-    note: document.getElementById('a_note').value
-  };
-
-  const r = await fetch('/adoption/create', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
-
-  document.getElementById('adoption_result').innerText = await r.text();
+  try {
+    const created = await requestJson('/adoption/create', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(collectAdoption())
+    });
+    fillAdoptionForm(created || {});
+    setResult('adoption_result', '保存成功，系统编号：' + (created?.id || ''));
+  } catch (e) {
+    setResult('adoption_result', e.message, true);
+  }
+}
+async function downloadPeopleTemplate() {
+  window.location.href = '/person/export_template';
 }
 
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+async function importPeopleCSV() {
+  const fileInput = document.getElementById('people_csv_file');
+  const resultEl = document.getElementById('people_csv_result');
+
+  if (!fileInput.files || fileInput.files.length === 0) {
+    resultEl.className = 'result error';
+    resultEl.innerText = '请先选择CSV文件';
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  try {
+    const r = await fetch('/person/import_csv', {
+      method: 'POST',
+      body: formData
+    });
+
+    const text = await r.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (e) {
+      data = null;
+    }
+
+    if (!r.ok) {
+      throw new Error((data && data.error) || text || '导入失败');
+    }
+
+    resultEl.className = 'result';
+    resultEl.innerText = data?.message || ('导入成功，数量：' + (data?.imported || 0));
+  } catch (e) {
+    resultEl.className = 'result error';
+    resultEl.innerText = e.message;
+  }
 }
 </script>
 

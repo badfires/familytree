@@ -8,18 +8,44 @@ import (
 	"family-tree/model"
 )
 
-func CreateMarriage(m model.Marriage) error {
+func CreateMarriage(m model.Marriage) (*model.Marriage, error) {
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	newID, err := NextID(tx, SeqTypeMarriage, MarriagePrefix)
+	if err != nil {
+		return nil, err
+	}
+	m.ID = newID
+
+	query := `
+		INSERT INTO marriages (id,husband_id,wife_id,marriage_date,note)
+		VALUES (?,?,?,?,?)
+	`
+	_, err = tx.Exec(query, m.ID, m.HusbandID, m.WifeID, m.MarriageDate, m.Note)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func UpdateMarriage(m model.Marriage) error {
 	if strings.TrimSpace(m.ID) == "" {
 		return errors.New("marriage id is required")
 	}
-
 	query := `
-	INSERT INTO marriages (id,husband_id,wife_id,marriage_date,note)
-	VALUES (?,?,?,?,?)`
-
-	_, err := database.DB.Exec(query,
-		m.ID, m.HusbandID, m.WifeID, m.MarriageDate, m.Note,
-	)
+		UPDATE marriages
+		SET husband_id=?, wife_id=?, marriage_date=?, note=?, updated_at=CURRENT_TIMESTAMP
+		WHERE id=?
+	`
+	_, err := database.DB.Exec(query, m.HusbandID, m.WifeID, m.MarriageDate, m.Note, m.ID)
 	return err
 }
 
@@ -38,17 +64,6 @@ func GetMarriageByID(id string) (*model.Marriage, error) {
 	return &m, nil
 }
 
-func UpdateMarriage(m model.Marriage) error {
-	query := `
-	UPDATE marriages
-	SET husband_id=?, wife_id=?, marriage_date=?, note=?, updated_at=CURRENT_TIMESTAMP
-	WHERE id=?`
-
-	_, err := database.DB.Exec(query,
-		m.HusbandID, m.WifeID, m.MarriageDate, m.Note, m.ID,
-	)
-	return err
-}
 
 func GetSpouses(personID string) ([]model.Person, error) {
 	query := `
