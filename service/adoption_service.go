@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"errors"
 	"strings"
 
@@ -27,7 +28,6 @@ func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
 	}
 	defer tx.Rollback()
 
-	// 统一由系统分配 adoption id，忽略外部传入
 	newID, err := NextID(tx, SeqTypeAdoption, AdoptionPrefix)
 	if err != nil {
 		return nil, err
@@ -36,10 +36,10 @@ func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
 
 	query := `
 		INSERT OR REPLACE INTO adoptions
-		(id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note, updated_at)
-		VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+			(id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note, updated_at)
+		VALUES
+			(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
 	`
-
 	_, err = tx.Exec(
 		query,
 		a.ID,
@@ -62,9 +62,9 @@ func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
 
 func GetAdoption(personID string) (*model.Adoption, error) {
 	query := `
-		SELECT id,person_id,from_father_id,from_mother_id,to_father_id,to_mother_id,note
+		SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
 		FROM adoptions
-		WHERE person_id=?
+		WHERE person_id = ?
 	`
 	row := database.DB.QueryRow(query, personID)
 
@@ -78,7 +78,76 @@ func GetAdoption(personID string) (*model.Adoption, error) {
 		&a.ToMotherID,
 		&a.Note,
 	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
+
 	return &a, nil
+}
+
+func GetAdoptionsByAdoptiveParent(parentID string) ([]model.Adoption, error) {
+	query := `
+		SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
+		FROM adoptions
+		WHERE to_father_id = ? OR to_mother_id = ?
+		ORDER BY person_id
+	`
+	rows, err := database.DB.Query(query, parentID, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []model.Adoption
+	for rows.Next() {
+		var a model.Adoption
+		if err := rows.Scan(
+			&a.ID,
+			&a.PersonID,
+			&a.FromFatherID,
+			&a.FromMotherID,
+			&a.ToFatherID,
+			&a.ToMotherID,
+			&a.Note,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, a)
+	}
+	return list, nil
+}
+
+func GetAdoptionsByAdoptivePair(toFatherID, toMotherID string) ([]model.Adoption, error) {
+	query := `
+		SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
+		FROM adoptions
+		WHERE ifnull(to_father_id, '') = ifnull(?, '')
+		  AND ifnull(to_mother_id, '') = ifnull(?, '')
+		ORDER BY person_id
+	`
+	rows, err := database.DB.Query(query, toFatherID, toMotherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []model.Adoption
+	for rows.Next() {
+		var a model.Adoption
+		if err := rows.Scan(
+			&a.ID,
+			&a.PersonID,
+			&a.FromFatherID,
+			&a.FromMotherID,
+			&a.ToFatherID,
+			&a.ToMotherID,
+			&a.Note,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, a)
+	}
+	return list, nil
 }
