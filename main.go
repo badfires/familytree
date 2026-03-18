@@ -1,13 +1,49 @@
 package main
 
 import (
+	"embed"
 	"log"
 	"net/http"
 
 	"family-tree/database"
 	"family-tree/handler"
 	"family-tree/service"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
+
+//go:embed all:frontend/dist
+var assets embed.FS
+
+func buildMux() http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/person/create", handler.CreatePersonHandler)
+	mux.HandleFunc("/person/get", handler.GetPersonHandler)
+	mux.HandleFunc("/person/update", handler.UpdatePersonHandler)
+	mux.HandleFunc("/person/search", handler.SearchPersonHandler)
+	mux.HandleFunc("/person/suggest", handler.SearchSuggestHandler)
+
+	mux.HandleFunc("/marriage/create", handler.CreateMarriageHandler)
+	mux.HandleFunc("/marriage/get", handler.GetMarriageHandler)
+	mux.HandleFunc("/marriage/update", handler.UpdateMarriageHandler)
+	mux.HandleFunc("/marriage/add_child", handler.AddMarriageChildHandler)
+
+	mux.HandleFunc("/adoption/create", handler.CreateAdoptionHandler)
+
+	mux.HandleFunc("/person/export_template", handler.ExportPersonTemplateHandler)
+	mux.HandleFunc("/person/import_csv", handler.ImportPersonCSVHandler)
+	mux.HandleFunc("/person/min_id", handler.GetMinPersonIDHandler)
+
+	mux.HandleFunc("/tree", handler.GetTreeHandler)
+	mux.HandleFunc("/graph", handler.GraphHandler)
+	mux.HandleFunc("/family_graph", handler.FamilyGraphHandler)
+	mux.HandleFunc("/family_view", handler.FamilyViewHandler)
+
+	return mux
+}
 
 func main() {
 	database.InitDB()
@@ -16,27 +52,22 @@ func main() {
 		log.Fatal(err)
 	}
 
-	http.Handle("/", http.FileServer(http.Dir("./")))
-	http.HandleFunc("/person/create", handler.CreatePersonHandler)
-	http.HandleFunc("/person/get", handler.GetPersonHandler)
-	http.HandleFunc("/person/update", handler.UpdatePersonHandler)
-	http.HandleFunc("/person/search", handler.SearchPersonHandler)
-	http.HandleFunc("/person/suggest", handler.SearchSuggestHandler)
+	app := NewApp()
 
-	http.HandleFunc("/marriage/create", handler.CreateMarriageHandler)
-	http.HandleFunc("/marriage/get", handler.GetMarriageHandler)
-	http.HandleFunc("/marriage/update", handler.UpdateMarriageHandler)
-	http.HandleFunc("/marriage/add_child", handler.AddMarriageChildHandler)
+	err := wails.Run(&options.App{
+		Title:  "FamilyTree",
+		Width:  1280,
+		Height: 860,
+		AssetServer: &assetserver.Options{
+			Assets:  assets,
+			Handler: buildMux(),
+		},
+		Bind: []interface{}{
+			app,
+		},
+	})
 
-	http.HandleFunc("/adoption/create", handler.CreateAdoptionHandler)
-		http.HandleFunc("/person/export_template", handler.ExportPersonTemplateHandler)
-	http.HandleFunc("/person/import_csv", handler.ImportPersonCSVHandler)
-
-	http.HandleFunc("/tree", handler.GetTreeHandler)
-	http.HandleFunc("/graph", handler.GraphHandler)
-	http.HandleFunc("/family_graph", handler.FamilyGraphHandler)
-	http.HandleFunc("/family_view", handler.FamilyViewHandler)
-http.HandleFunc("/person/min_id", handler.GetMinPersonIDHandler)
-	log.Println("server started at :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	if err != nil {
+		log.Fatal(err)
+	}
 }

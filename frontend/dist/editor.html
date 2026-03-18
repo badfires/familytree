@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>族谱录入</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: #f5f5f5;
+      color: #222;
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      margin: 0 0 20px;
+      font-size: 28px;
+    }
+
+    .topbar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .topbar a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 40px;
+      padding: 0 16px;
+      border: 1px solid #999;
+      border-radius: 8px;
+      background: #fff;
+      color: #222;
+      text-decoration: none;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+
+    .card h3 {
+      margin: 0 0 14px;
+      font-size: 20px;
+    }
+
+    .help {
+      margin: 0 0 12px;
+      color: #666;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .form-row {
+      margin-bottom: 12px;
+    }
+
+    .form-row label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .form-row input,
+    .form-row select,
+    .form-row textarea {
+      width: 100%;
+      min-height: 40px;
+      padding: 8px 10px;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      background: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .form-row textarea {
+      min-height: 84px;
+      resize: vertical;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    button {
+      height: 40px;
+      padding: 0 16px;
+      border: 1px solid #999;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background: #fafafa;
+    }
+
+    .inline {
+      display: flex;
+      gap: 8px;
+    }
+
+    .inline > * {
+      flex: 1;
+    }
+
+    #searchSuggest {
+      margin-top: 8px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fff;
+      max-height: 220px;
+      overflow: auto;
+      display: none;
+    }
+
+    .suggest-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .suggest-item:last-child {
+      border-bottom: none;
+    }
+
+    .suggest-item:hover {
+      background: #f7f7f7;
+    }
+
+    .status {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #ddd;
+      min-height: 48px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .ok { color: #0a7a2f; }
+    .err { color: #c62828; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>族谱录入</h1>
+
+    <div class="topbar">
+      <a href="/index.html">打开树图页</a>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>人物搜索联想</h3>
+        <div class="form-row">
+          <label for="searchName">姓名关键字</label>
+          <input id="searchName" type="text" placeholder="输入姓名关键字" />
+          <div id="searchSuggest"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>人物模板与 CSV 导入</h3>
+        <div class="form-actions">
+          <button type="button" onclick="downloadPeopleTemplate()">下载人物 CSV 模板</button>
+        </div>
+        <div class="form-row" style="margin-top:12px;">
+          <label for="peopleCsvFile">选择 people.csv</label>
+          <input id="peopleCsvFile" type="file" accept=".csv" />
+        </div>
+        <div class="form-actions">
+          <button type="button" onclick="importPeopleCsv()">导入人物 CSV</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>新增 / 编辑人物</h3>
+        <p class="help">新增时 ID 可不填；读取 / 更新时填写已有 ID。</p>
+
+        <div class="form-row">
+          <label for="personID">ID</label>
+          <input id="personID" type="text" placeholder="如 p1" />
+        </div>
+
+        <div class="form-row">
+          <label for="personName">姓名</label>
+          <input id="personName" type="text" />
+        </div>
+
+        <div class="form-row">
+          <label for="personGender">性别</label>
+          <select id="personGender">
+            <option value="">请选择</option>
+            <option value="male">男</option>
+            <option value="female">女</option>
+          </select>
+        </div>
+
+        <div class="inline">
+          <div class="form-row">
+            <label for="personBirthDate">出生日期</label>
+            <input id="personBirthDate" type="text" placeholder="YYYY-MM-DD" />
+          </div>
+          <div class="form-row">
+            <label for="personBirthPlace">出生地点</label>
+            <input id="personBirthPlace" type="text" />
+          </div>
+        </div>
+
+        <div class="inline">
+          <div class="form-row">
+            <label for="personDeathDate">去世日期</label>
+            <input id="personDeathDate" type="text" placeholder="YYYY-MM-DD" />
+          </div>
+          <div class="form-row">
+            <label for="personBurialPlace">安葬地点</label>
+            <input id="personBurialPlace" type="text" />
+          </div>
+        </div>
+
+        <div class="inline">
+          <div class="form-row">
+            <label for="personFatherID">父亲 ID</label>
+            <input id="personFatherID" type="text" placeholder="如 p1" />
+          </div>
+          <div class="form-row">
+            <label for="personMotherID">母亲 ID</label>
+            <input id="personMotherID" type="text" placeholder="如 p2" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label for="personBio">生平</label>
+          <textarea id="personBio"></textarea>
+        </div>
+
+        <div class="form-row">
+          <label for="personNote">备注</label>
+          <textarea id="personNote"></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" onclick="createPerson()">保存人物</button>
+          <button type="button" onclick="loadPerson()">读取人物</button>
+          <button type="button" onclick="updatePerson()">更新人物</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>新增 / 编辑婚姻</h3>
+        <p class="help">新增时婚姻 ID 可不填；读取 / 更新时填写已有婚姻 ID。</p>
+
+        <div class="form-row">
+          <label for="marriageID">婚姻 ID</label>
+          <input id="marriageID" type="text" placeholder="如 m1" />
+        </div>
+
+        <div class="inline">
+          <div class="form-row">
+            <label for="marriageHusbandID">丈夫 ID</label>
+            <input id="marriageHusbandID" type="text" placeholder="如 p1" />
+          </div>
+          <div class="form-row">
+            <label for="marriageWifeID">妻子 ID</label>
+            <input id="marriageWifeID" type="text" placeholder="如 p2" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label for="marriageDate">结婚日期</label>
+          <input id="marriageDate" type="text" placeholder="YYYY-MM-DD" />
+        </div>
+
+        <div class="form-row">
+          <label for="marriageNote">备注</label>
+          <textarea id="marriageNote"></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" onclick="createMarriage()">保存婚姻</button>
+          <button type="button" onclick="loadMarriage()">读取婚姻</button>
+          <button type="button" onclick="updateMarriage()">更新婚姻</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>绑定子女到婚姻</h3>
+
+        <div class="form-row">
+          <label for="bindMarriageID">婚姻 ID</label>
+          <input id="bindMarriageID" type="text" placeholder="如 m1" />
+        </div>
+
+        <div class="form-row">
+          <label for="bindChildID">子女 ID</label>
+          <input id="bindChildID" type="text" placeholder="如 p7" />
+        </div>
+
+        <div class="form-actions">
+          <button type="button" onclick="bindMarriageChild()">绑定</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>过继</h3>
+        <p class="help">只填写被过继人物 ID 和过继后的父母 ID。原父母会自动从当前人物关系中记录。</p>
+
+        <div class="form-row">
+          <label for="adoptPersonID">被过继人物 ID</label>
+          <input id="adoptPersonID" type="text" placeholder="如 p8" />
+        </div>
+
+        <div class="inline">
+          <div class="form-row">
+            <label for="adoptToFatherID">过继后父亲 ID</label>
+            <input id="adoptToFatherID" type="text" placeholder="可空" />
+          </div>
+          <div class="form-row">
+            <label for="adoptToMotherID">过继后母亲 ID</label>
+            <input id="adoptToMotherID" type="text" placeholder="可空" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label for="adoptNote">备注</label>
+          <textarea id="adoptNote"></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" onclick="submitAdoption()">保存过继</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="status">就绪</div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+
+    function setStatus(text, ok = true) {
+      statusEl.textContent = text;
+      statusEl.className = `status ${ok ? "ok" : "err"}`;
+    }
+
+    async function api(url, options = {}) {
+      const resp = await fetch(url, options);
+      const text = await resp.text();
+      let data = null;
+
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (_) {
+        data = text;
+      }
+
+      if (!resp.ok) {
+        throw new Error(typeof data === "string" ? data : JSON.stringify(data));
+      }
+
+      return data;
+    }
+
+    function fillPersonForm(p) {
+      document.getElementById("personID").value = p.id || "";
+      document.getElementById("personName").value = p.name || "";
+      document.getElementById("personGender").value = p.gender || "";
+      document.getElementById("personBirthDate").value = p.birth_date || "";
+      document.getElementById("personBirthPlace").value = p.birth_place || "";
+      document.getElementById("personDeathDate").value = p.death_date || "";
+      document.getElementById("personBurialPlace").value = p.burial_place || "";
+      document.getElementById("personFatherID").value = p.father_id || "";
+      document.getElementById("personMotherID").value = p.mother_id || "";
+      document.getElementById("personBio").value = p.bio || "";
+      document.getElementById("personNote").value = p.note || "";
+    }
+
+    function collectPersonForm() {
+      return {
+        id: document.getElementById("personID").value.trim(),
+        name: document.getElementById("personName").value.trim(),
+        gender: document.getElementById("personGender").value.trim(),
+        birth_date: document.getElementById("personBirthDate").value.trim(),
+        birth_place: document.getElementById("personBirthPlace").value.trim(),
+        death_date: document.getElementById("personDeathDate").value.trim(),
+        burial_place: document.getElementById("personBurialPlace").value.trim(),
+        father_id: document.getElementById("personFatherID").value.trim(),
+        mother_id: document.getElementById("personMotherID").value.trim(),
+        bio: document.getElementById("personBio").value.trim(),
+        note: document.getElementById("personNote").value.trim()
+      };
+    }
+
+    function fillMarriageForm(m) {
+      document.getElementById("marriageID").value = m.id || "";
+      document.getElementById("marriageHusbandID").value = m.husband_id || "";
+      document.getElementById("marriageWifeID").value = m.wife_id || "";
+      document.getElementById("marriageDate").value = m.marriage_date || "";
+      document.getElementById("marriageNote").value = m.note || "";
+    }
+
+    function collectMarriageForm() {
+      return {
+        id: document.getElementById("marriageID").value.trim(),
+        husband_id: document.getElementById("marriageHusbandID").value.trim(),
+        wife_id: document.getElementById("marriageWifeID").value.trim(),
+        marriage_date: document.getElementById("marriageDate").value.trim(),
+        note: document.getElementById("marriageNote").value.trim()
+      };
+    }
+
+    async function createPerson() {
+      try {
+        const body = collectPersonForm();
+        delete body.id;
+
+        const data = await api("/person/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        fillPersonForm(data);
+        setStatus(`保存人物成功：${data.id || ""}`);
+      } catch (e) {
+        setStatus(`保存人物失败：${e.message}`, false);
+      }
+    }
+
+    async function loadPerson() {
+      try {
+        const id = document.getElementById("personID").value.trim();
+        if (!id) throw new Error("请填写人物 ID");
+
+        const data = await api(`/person/get?id=${encodeURIComponent(id)}`);
+        fillPersonForm(data);
+        setStatus(`读取人物成功：${id}`);
+      } catch (e) {
+        setStatus(`读取人物失败：${e.message}`, false);
+      }
+    }
+
+    async function updatePerson() {
+      try {
+        const body = collectPersonForm();
+        if (!body.id) throw new Error("请填写人物 ID");
+
+        const data = await api("/person/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        fillPersonForm(data);
+        setStatus(`更新人物成功：${data.id || body.id}`);
+      } catch (e) {
+        setStatus(`更新人物失败：${e.message}`, false);
+      }
+    }
+
+    async function createMarriage() {
+      try {
+        const body = collectMarriageForm();
+        delete body.id;
+
+        const data = await api("/marriage/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        fillMarriageForm(data);
+        setStatus(`保存婚姻成功：${data.id || ""}`);
+      } catch (e) {
+        setStatus(`保存婚姻失败：${e.message}`, false);
+      }
+    }
+
+    async function loadMarriage() {
+      try {
+        const id = document.getElementById("marriageID").value.trim();
+        if (!id) throw new Error("请填写婚姻 ID");
+
+        const data = await api(`/marriage/get?id=${encodeURIComponent(id)}`);
+        fillMarriageForm(data);
+        setStatus(`读取婚姻成功：${id}`);
+      } catch (e) {
+        setStatus(`读取婚姻失败：${e.message}`, false);
+      }
+    }
+
+    async function updateMarriage() {
+      try {
+        const body = collectMarriageForm();
+        if (!body.id) throw new Error("请填写婚姻 ID");
+
+        const data = await api("/marriage/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        fillMarriageForm(data);
+        setStatus(`更新婚姻成功：${data.id || body.id}`);
+      } catch (e) {
+        setStatus(`更新婚姻失败：${e.message}`, false);
+      }
+    }
+
+    async function bindMarriageChild() {
+      try {
+        const marriageID = document.getElementById("bindMarriageID").value.trim();
+        const childID = document.getElementById("bindChildID").value.trim();
+
+        if (!marriageID) throw new Error("请填写婚姻 ID");
+        if (!childID) throw new Error("请填写子女 ID");
+
+        await api("/marriage/bind_child", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            marriage_id: marriageID,
+            child_id: childID
+          })
+        });
+
+        setStatus(`绑定成功：婚姻 ${marriageID} <- 子女 ${childID}`);
+      } catch (e) {
+        setStatus(`绑定失败：${e.message}`, false);
+      }
+    }
+
+    async function submitAdoption() {
+      try {
+        const personID = document.getElementById("adoptPersonID").value.trim();
+        const toFatherID = document.getElementById("adoptToFatherID").value.trim();
+        const toMotherID = document.getElementById("adoptToMotherID").value.trim();
+        const note = document.getElementById("adoptNote").value.trim();
+
+        if (!personID) throw new Error("请填写被过继人物 ID");
+        if (!toFatherID && !toMotherID) throw new Error("请至少填写一个过继后父母 ID");
+
+        const data = await api("/adoption/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            person_id: personID,
+            to_father_id: toFatherID,
+            to_mother_id: toMotherID,
+            note: note
+          })
+        });
+
+        setStatus(`过继保存成功：${data.id || ""}`);
+      } catch (e) {
+        setStatus(`过继保存失败：${e.message}`, false);
+      }
+    }
+
+    async function downloadPeopleTemplate() {
+      window.location.href = "/person/template";
+    }
+
+    async function importPeopleCsv() {
+      try {
+        const fileInput = document.getElementById("peopleCsvFile");
+        if (!fileInput.files || fileInput.files.length === 0) {
+          throw new Error("请选择 CSV 文件");
+        }
+
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+
+        const resp = await fetch("/person/import_csv", {
+          method: "POST",
+          body: formData
+        });
+
+        const text = await resp.text();
+        if (!resp.ok) {
+          throw new Error(text || "导入失败");
+        }
+
+        setStatus(text || "CSV 导入成功");
+      } catch (e) {
+        setStatus(`CSV 导入失败：${e.message}`, false);
+      }
+    }
+
+    let searchTimer = null;
+
+    async function doSearchSuggest(keyword) {
+      const box = document.getElementById("searchSuggest");
+      box.innerHTML = "";
+
+      if (!keyword) {
+        box.style.display = "none";
+        return;
+      }
+
+      try {
+        const list = await api(`/person/search?name=${encodeURIComponent(keyword)}`);
+        if (!Array.isArray(list) || list.length === 0) {
+          box.style.display = "none";
+          return;
+        }
+
+        list.forEach(item => {
+          const div = document.createElement("div");
+          div.className = "suggest-item";
+          div.textContent = `${item.name || ""} (${item.id || ""})`;
+          div.addEventListener("click", () => {
+            document.getElementById("personID").value = item.id || "";
+            document.getElementById("searchName").value = item.name || "";
+            box.style.display = "none";
+            loadPerson();
+          });
+          box.appendChild(div);
+        });
+
+        box.style.display = "block";
+      } catch (_) {
+        box.style.display = "none";
+      }
+    }
+
+    document.getElementById("searchName").addEventListener("input", (e) => {
+      const keyword = e.target.value.trim();
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => doSearchSuggest(keyword), 250);
+    });
+
+    document.addEventListener("click", (e) => {
+      const box = document.getElementById("searchSuggest");
+      const input = document.getElementById("searchName");
+      if (e.target !== box && !box.contains(e.target) && e.target !== input) {
+        box.style.display = "none";
+      }
+    });
+
+    async function initFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      const id = (params.get("id") || "").trim();
+      if (!id) return;
+
+      document.getElementById("personID").value = id;
+      await loadPerson();
+    }
+
+    window.addEventListener("load", initFromQuery);
+  </script>
+</body>
+</html>

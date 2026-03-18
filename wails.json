@@ -1,0 +1,16 @@
+{
+  "name": "familytree",
+  "outputfilename": "familytree",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev": "",
+  "frontend:dir": "frontend/dist",
+  "author": {
+    "name": "chm",
+    "email": ""
+  },
+  "info": {
+    "companyName": "",
+    "productName": "familytree"
+  }
+}

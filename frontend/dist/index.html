@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>族谱视图</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: #f3f3f3;
+      color: #222;
+    }
+
+    .page {
+      padding: 20px 22px 32px;
+    }
+
+    h1 {
+      margin: 0 0 22px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .toolbar input {
+      height: 42px;
+      min-width: 260px;
+      padding: 0 12px;
+      border: 1px solid #b9b9b9;
+      background: #fff;
+      font-size: 16px;
+      outline: none;
+    }
+
+    .toolbar button {
+      height: 42px;
+      padding: 0 20px;
+      border: 1px solid #8d8d8d;
+      background: #fff;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .toolbar button:hover {
+      background: #fafafa;
+    }
+
+    .toolbar a {
+      color: #5a35c8;
+      text-decoration: none;
+      font-size: 16px;
+      margin-left: 10px;
+    }
+
+    .msg {
+      min-height: 22px;
+      margin-bottom: 10px;
+      color: #b42318;
+      font-size: 14px;
+    }
+
+    .hint {
+      margin-top: 6px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      color: #666;
+    }
+
+    #treeScroll {
+      position: relative;
+      overflow: auto;
+      width: 100%;
+      height: calc(100vh - 185px);
+      min-height: 520px;
+      border-top: 1px solid #ddd;
+      padding-top: 12px;
+    }
+
+    #treeStage {
+      position: relative;
+      min-width: 1200px;
+      min-height: 700px;
+    }
+
+    #treeSvg {
+      position: absolute;
+      left: 0;
+      top: 0;
+      overflow: visible;
+      pointer-events: none;
+    }
+
+    .family-group {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 22px 24px;
+      border-radius: 22px;
+      border: 2px solid #d9d9d9;
+      background: rgba(255, 255, 255, 0.45);
+    }
+
+    .tree-node {
+      width: 200px;
+      height: 64px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      font-size: 18px;
+      font-weight: 600;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.04);
+      user-select: none;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .tree-node.person {
+      border: 2px solid #68a6f4;
+      background: #f8fbff;
+      color: #111;
+    }
+
+    .tree-node.spouse {
+      border: 2px solid #e0a140;
+      background: #f9f3e6;
+      color: #111;
+    }
+
+    .tree-node:hover {
+      filter: brightness(0.98);
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>族谱视图</h1>
+
+    <div class="toolbar">
+      <input id="idInput" placeholder="输入人物ID，如 p1" value="p1" />
+      <input id="nameInput" placeholder="输入姓名搜索" />
+      <button id="viewBtn">树图视图</button>
+      <a href="/editor.html" target="_blank">打开录入页</a>
+    </div>
+
+    <div id="msg" class="msg"></div>
+    <div class="hint">文字只显示姓名，鼠标悬停显示人物 ID；点击节点进入编辑页。</div>
+
+    <div id="treeScroll">
+      <div id="treeStage">
+        <svg id="treeSvg"></svg>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const BOX_W = 200;
+    const BOX_H = 64;
+    const GROUP_PAD_X = 24;
+    const GROUP_PAD_Y = 22;
+    const INNER_GAP = 18;
+    const H_GAP = 40;
+    const V_GAP = 110;
+    const FAMILY_GAP = 36;
+    const PADDING_X = 50;
+    const PADDING_Y = 24;
+    const PERSON_DETAIL_URL = (id) => `/editor.html?id=${encodeURIComponent(id)}`;
+
+    const idInput = document.getElementById("idInput");
+    const nameInput = document.getElementById("nameInput");
+    const viewBtn = document.getElementById("viewBtn");
+    const msgEl = document.getElementById("msg");
+    const stage = document.getElementById("treeStage");
+    const svg = document.getElementById("treeSvg");
+
+    let nodePosMap = {};
+
+    function setMsg(text = "") {
+      msgEl.textContent = text;
+    }
+
+    async function fetchJSON(url) {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || `请求失败: ${resp.status}`);
+      }
+      return resp.json();
+    }
+
+    async function resolveIdByName(name) {
+      const keyword = (name || "").trim();
+      if (!keyword) return "";
+      const list = await fetchJSON(`/person/search?name=${encodeURIComponent(keyword)}`);
+      if (Array.isArray(list) && list.length > 0) {
+        return list[0].id || "";
+      }
+      return "";
+    }
+
+    function clearTree() {
+      stage.querySelectorAll(".family-group").forEach(el => el.remove());
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      nodePosMap = {};
+    }
+
+    function normalizeNode(node) {
+      if (!node) return null;
+
+      if (!Array.isArray(node.spouses)) node.spouses = [];
+      if (!Array.isArray(node.families)) node.families = [];
+
+      node.families.forEach(f => {
+        if (!Array.isArray(f.children)) f.children = [];
+        f.children.forEach(normalizeNode);
+      });
+
+      node._groupWidth = GROUP_PAD_X * 2 + BOX_W + node.spouses.length * (BOX_W + INNER_GAP);
+      node._groupHeight = GROUP_PAD_Y * 2 + BOX_H;
+
+      return node;
+    }
+
+    function measure(node) {
+      if (!node.families || node.families.length === 0) {
+        node._subtreeWidth = node._groupWidth;
+        return node._subtreeWidth;
+      }
+
+      let familiesWidth = 0;
+
+      node.families.forEach((family, familyIdx) => {
+        let childrenWidth = 0;
+
+        family.children.forEach((child, idx) => {
+          childrenWidth += measure(child);
+          if (idx > 0) childrenWidth += H_GAP;
+        });
+
+        family._childrenWidth = Math.max(childrenWidth, BOX_W);
+        familiesWidth += family._childrenWidth;
+
+        if (familyIdx > 0) familiesWidth += FAMILY_GAP;
+      });
+
+      node._subtreeWidth = Math.max(node._groupWidth, familiesWidth);
+      return node._subtreeWidth;
+    }
+
+    function layout(node, left, top) {
+      const subtreeWidth = node._subtreeWidth;
+
+      node._left = left + (subtreeWidth - node._groupWidth) / 2;
+      node._top = top;
+      node._centerX = node._left + node._groupWidth / 2;
+      node._bottomY = node._top + node._groupHeight;
+
+      nodePosMap[node.id] = {
+        id: node.id,
+        left: node._left,
+        top: node._top,
+        width: node._groupWidth,
+        height: node._groupHeight,
+        centerX: node._centerX,
+        topCenterX: node._centerX,
+        topCenterY: node._top,
+        bottomCenterX: node._centerX,
+        bottomCenterY: node._bottomY,
+        selfBox: null,
+        spouseBoxes: {}
+      };
+
+      if (!node.families || node.families.length === 0) return;
+
+      let totalFamiliesWidth = 0;
+      node.families.forEach((family, idx) => {
+        totalFamiliesWidth += family._childrenWidth;
+        if (idx > 0) totalFamiliesWidth += FAMILY_GAP;
+      });
+
+      let familyCursor = left + (subtreeWidth - totalFamiliesWidth) / 2;
+      const childTop = top + node._groupHeight + V_GAP;
+
+      node.families.forEach(family => {
+        family._left = familyCursor;
+        family._right = familyCursor + family._childrenWidth;
+        family._centerX = (family._left + family._right) / 2;
+
+        let childCursor = family._left;
+        family.children.forEach((child, idx) => {
+          layout(child, childCursor, childTop);
+          childCursor += child._subtreeWidth;
+          if (idx < family.children.length - 1) childCursor += H_GAP;
+        });
+
+        familyCursor += family._childrenWidth + FAMILY_GAP;
+      });
+    }
+
+    function getDepth(node) {
+      if (!node.families || node.families.length === 0) return 1;
+
+      let maxDepth = 0;
+      node.families.forEach(f => {
+        f.children.forEach(child => {
+          maxDepth = Math.max(maxDepth, getDepth(child));
+        });
+      });
+
+      return maxDepth + 1;
+    }
+
+    function createSvgPath(d, stroke = "#9a9a9a", dashed = false, width = 3) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", stroke);
+      path.setAttribute("stroke-width", String(width));
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("stroke-linejoin", "round");
+      if (dashed) path.setAttribute("stroke-dasharray", "8 6");
+      svg.appendChild(path);
+    }
+
+    function getFamilyAnchor(node, family) {
+      const pos = nodePosMap[node.id];
+      if (!pos) {
+        return { x: node._centerX, y: node._bottomY };
+      }
+
+      if (family.spouse_id && pos.spouseBoxes && pos.spouseBoxes[family.spouse_id]) {
+        const box = pos.spouseBoxes[family.spouse_id];
+        return {
+          x: box.centerX,
+          y: box.bottomY
+        };
+      }
+
+      if (pos.selfBox) {
+        return {
+          x: pos.selfBox.centerX,
+          y: pos.selfBox.bottomY
+        };
+      }
+
+      return {
+        x: pos.bottomCenterX,
+        y: pos.bottomCenterY
+      };
+    }
+
+    function drawFamilyLines(node) {
+      if (!node.families || node.families.length === 0) return;
+
+      node.families.forEach((family) => {
+        const anchor = getFamilyAnchor(node, family);
+
+        if (family.children.length === 1) {
+          const child = nodePosMap[family.children[0].id];
+          if (!child) return;
+
+          const branchY = anchor.y + 34;
+          createSvgPath(`M ${anchor.x} ${anchor.y} L ${anchor.x} ${branchY}`);
+          createSvgPath(`M ${anchor.x} ${branchY} L ${child.topCenterX} ${child.topCenterY}`);
+          return;
+        }
+
+        if (family.children.length > 1) {
+          const children = family.children.map(c => nodePosMap[c.id]).filter(Boolean);
+          if (children.length === 0) return;
+
+          const branchY = anchor.y + 34;
+          const minX = Math.min(...children.map(c => c.topCenterX));
+          const maxX = Math.max(...children.map(c => c.topCenterX));
+
+          createSvgPath(`M ${anchor.x} ${anchor.y} L ${anchor.x} ${branchY}`);
+          createSvgPath(`M ${minX} ${branchY} L ${maxX} ${branchY}`);
+
+          children.forEach(c => {
+            createSvgPath(`M ${c.topCenterX} ${branchY} L ${c.topCenterX} ${c.topCenterY}`);
+          });
+        }
+      });
+
+      node.families.forEach(f => {
+        f.children.forEach(drawFamilyLines);
+      });
+    }
+
+    function drawExtraLinks(extraLinks) {
+      if (!Array.isArray(extraLinks)) return;
+
+      extraLinks.forEach(link => {
+        const source = nodePosMap[link.source_id];
+        const target = nodePosMap[link.target_id];
+        if (!source || !target) return;
+
+        const sx = source.centerX;
+        const sy = source.top;
+        const tx = target.centerX;
+        const ty = target.bottomCenterY;
+
+        const midY = Math.min(sy, ty) - 24;
+        const d = `M ${sx} ${sy} C ${sx} ${midY}, ${tx} ${midY}, ${tx} ${ty}`;
+        createSvgPath(d, "#999", link.style === "dashed", 2);
+      });
+    }
+
+    function openPersonDetail(id) {
+      if (!id) return;
+      window.location.href = PERSON_DETAIL_URL(id);
+    }
+
+    function renderGroup(node) {
+      const group = document.createElement("div");
+      group.className = "family-group";
+      group.style.left = `${node._left}px`;
+      group.style.top = `${node._top}px`;
+      group.style.width = `${node._groupWidth}px`;
+      group.style.height = `${node._groupHeight}px`;
+
+      const self = document.createElement("div");
+      self.className = "tree-node person";
+      self.textContent = node.label || node.id || "";
+      self.title = node.title || node.id || "";
+      self.addEventListener("click", () => openPersonDetail(node.id));
+      group.appendChild(self);
+
+      const selfLeft = GROUP_PAD_X;
+      const selfTop = GROUP_PAD_Y;
+      nodePosMap[node.id].selfBox = {
+        left: node._left + selfLeft,
+        top: node._top + selfTop,
+        centerX: node._left + selfLeft + BOX_W / 2,
+        centerY: node._top + selfTop + BOX_H / 2,
+        bottomY: node._top + selfTop + BOX_H
+      };
+
+      (node.spouses || []).forEach((sp, idx) => {
+        const el = document.createElement("div");
+        el.className = "tree-node spouse";
+        el.textContent = sp.label || sp.id || "";
+        el.title = sp.title || sp.id || "";
+        el.addEventListener("click", () => openPersonDetail(sp.id));
+        group.appendChild(el);
+
+        const left = GROUP_PAD_X + BOX_W + INNER_GAP + idx * (BOX_W + INNER_GAP);
+        const top = GROUP_PAD_Y;
+
+        nodePosMap[node.id].spouseBoxes[sp.id] = {
+          left: node._left + left,
+          top: node._top + top,
+          centerX: node._left + left + BOX_W / 2,
+          centerY: node._top + top + BOX_H / 2,
+          bottomY: node._top + top + BOX_H
+        };
+      });
+
+      stage.appendChild(group);
+
+      (node.families || []).forEach(f => {
+        f.children.forEach(renderGroup);
+      });
+    }
+
+    function renderTreeData(resp) {
+      clearTree();
+
+      if (!resp || !resp.root) {
+        setMsg("没有可显示的数据");
+        return;
+      }
+
+      const root = normalizeNode(resp.root);
+      measure(root);
+      layout(root, PADDING_X, PADDING_Y);
+
+      const depth = getDepth(root);
+      const width = Math.max(root._subtreeWidth + PADDING_X * 2, 1200);
+      const height = Math.max(depth * (GROUP_PAD_Y * 2 + BOX_H + V_GAP) + 180, 700);
+
+      stage.style.width = `${width}px`;
+      stage.style.height = `${height}px`;
+      svg.setAttribute("width", String(width));
+      svg.setAttribute("height", String(height));
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      renderGroup(root);
+      drawFamilyLines(root);
+      drawExtraLinks(resp.extra_links || []);
+    }
+
+    async function loadTreeById(id) {
+      const targetID = (id || "").trim();
+      if (!targetID) {
+        setMsg("请输入人物 ID");
+        return;
+      }
+
+      setMsg("");
+      const resp = await fetchJSON(`/tree?id=${encodeURIComponent(targetID)}`);
+      renderTreeData(resp);
+    }
+
+    async function handleView() {
+      try {
+        setMsg("");
+
+        const directID = idInput.value.trim();
+        if (directID) {
+          await loadTreeById(directID);
+          return;
+        }
+
+        const name = nameInput.value.trim();
+        if (!name) {
+          setMsg("请输入人物 ID 或姓名关键字");
+          return;
+        }
+
+        const resolvedID = await resolveIdByName(name);
+        if (!resolvedID) {
+          setMsg("未找到匹配人物");
+          return;
+        }
+
+        idInput.value = resolvedID;
+        await loadTreeById(resolvedID);
+      } catch (e) {
+        setMsg(e.message || String(e));
+      }
+    }
+
+    viewBtn.addEventListener("click", handleView);
+    idInput.addEventListener("keydown", e => {
+      if (e.key === "Enter") handleView();
+    });
+    nameInput.addEventListener("keydown", e => {
+      if (e.key === "Enter") handleView();
+    });
+
+    window.addEventListener("load", handleView);
+  </script>
+</body>
+</html>
