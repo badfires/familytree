@@ -13,8 +13,19 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+var AdminPassword = ""
+
 func getAdminPassword() string {
-	return strings.TrimSpace(os.Getenv("FAMILYTREE_ADMIN_PASSWORD"))
+	if AdminPassword != "" {
+		return AdminPassword
+	}
+
+	// fallback（开发用）
+	if v := os.Getenv("FAMILYTREE_ADMIN_PASSWORD"); v != "" {
+		return v
+	}
+
+	return "admin" // 默认值（防止空）
 }
 
 func extractAdminPassword(r *http.Request) string {
