@@ -7,9 +7,10 @@ type TreeSpouse struct {
 }
 
 type TreeFamily struct {
-	Key      string      `json:"key"`
-	SpouseID string      `json:"spouse_id,omitempty"`
-	Children []*TreeNode `json:"children,omitempty"`
+	Key        string      `json:"key"`
+	SpouseID   string      `json:"spouse_id,omitempty"`
+	FamilyType string      `json:"family_type,omitempty"` // marriage / adoption / single_parent
+	Children   []*TreeNode `json:"children,omitempty"`
 }
 
 type TreeNode struct {

@@ -60,22 +60,18 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 
 	coveredPairs := map[string]bool{}
 
-	// 1) 收集所有正式婚姻配偶，用于同排展示
+	// 1) 正式婚姻：收集 spouses + 为每个 spouse 建 family
 	for _, m := range view.Marriages {
 		var spouseID string
-		var spouseLabel string
-
 		for _, s := range m.Spouses {
 			if s.ID == view.Center.ID {
 				continue
 			}
 			spouseID = s.ID
-			spouseLabel = buildPersonLabel(s)
-
 			if !hasSpouse(root.Spouses, s.ID) {
 				root.Spouses = append(root.Spouses, model.TreeSpouse{
 					ID:    s.ID,
-					Label: spouseLabel,
+					Label: buildPersonLabel(s),
 					Title: s.ID,
 				})
 			}
@@ -86,19 +82,18 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 		coveredPairs[pairKey] = true
 
 		family := model.TreeFamily{
-			Key:      pairKey,
-			SpouseID: spouseID,
-			Children: []*model.TreeNode{},
+			Key:        pairKey,
+			SpouseID:   spouseID,
+			FamilyType: "marriage",
+			Children:   []*model.TreeNode{},
 		}
 
-		// 正式婚姻的孩子
+		// 婚生孩子
 		for _, c := range m.Children {
 			a, err := GetAdoption(c.ID)
-			if err == nil && a != nil {
-				if pairContainsParentIDs(pairKey, a.FromFatherID, a.FromMotherID) {
-					// 已从这对原父母过继出去，不再挂这里
-					continue
-				}
+			if err == nil && a != nil && pairContainsParentIDs(pairKey, a.FromFatherID, a.FromMotherID) {
+				// 已从这对父母过继走，不在原婚姻下画实线
+				continue
 			}
 
 			childNode, err := buildTreeRecursive(c.ID, ctx)
@@ -108,10 +103,10 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 			family.Children = append(family.Children, childNode)
 		}
 
-		// 过继到这对夫妻名下的孩子
-		adoptedChildren, err := GetAdoptionsByAdoptivePair(view.Center.ID, spouseID)
+		// 过继到这对配偶名下的孩子
+		adopted1, err := GetAdoptionsByAdoptivePair(view.Center.ID, spouseID)
 		if err == nil {
-			for _, a := range adoptedChildren {
+			for _, a := range adopted1 {
 				if ctx.renderedAdoptions[a.PersonID] {
 					continue
 				}
@@ -125,9 +120,9 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 			}
 		}
 
-		adoptedChildren2, err := GetAdoptionsByAdoptivePair(spouseID, view.Center.ID)
+		adopted2, err := GetAdoptionsByAdoptivePair(spouseID, view.Center.ID)
 		if err == nil {
-			for _, a := range adoptedChildren2 {
+			for _, a := range adopted2 {
 				if ctx.renderedAdoptions[a.PersonID] {
 					continue
 				}
@@ -146,7 +141,7 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 		}
 	}
 
-	// 2) 无婚姻记录的过继家庭
+	// 2) 没婚姻记录的过继家庭
 	adoptions, err := GetAdoptionsByAdoptiveParent(view.Center.ID)
 	if err == nil && len(adoptions) > 0 {
 		familyMap := map[string]*model.TreeFamily{}
@@ -159,6 +154,7 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 			otherParentID := getOtherAdoptiveParentID(view.Center.ID, a.ToFatherID, a.ToMotherID)
 			pairKey := normalizePair(view.Center.ID, otherParentID)
 
+			// 正式婚姻已经处理过，则跳过
 			if coveredPairs[pairKey] {
 				continue
 			}
@@ -181,10 +177,16 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 
 			f, ok := familyMap[pairKey]
 			if !ok {
+				familyType := "single_parent"
+				if strings.TrimSpace(otherParentID) != "" {
+					familyType = "adoption"
+				}
+
 				f = &model.TreeFamily{
-					Key:      pairKey,
-					SpouseID: otherParentID,
-					Children: []*model.TreeNode{},
+					Key:        pairKey,
+					SpouseID:   otherParentID,
+					FamilyType: familyType,
+					Children:   []*model.TreeNode{},
 				}
 				familyMap[pairKey] = f
 			}
@@ -193,6 +195,7 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 			if err != nil || childNode == nil {
 				continue
 			}
+
 			f.Children = append(f.Children, childNode)
 			ctx.renderedAdoptions[a.PersonID] = true
 			appendAdoptionOriginLinks(ctx, a)

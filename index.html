@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>族谱视图</title>
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -127,6 +125,7 @@
       box-shadow: 0 0 0 1px rgba(0,0,0,0.04);
       user-select: none;
       background: #fff;
+      cursor: pointer;
     }
 
     .tree-node.person {
@@ -143,6 +142,7 @@
 
     .tree-node:hover {
       filter: brightness(0.98);
+      transform: translateY(-1px);
     }
   </style>
 </head>
@@ -158,7 +158,7 @@
     </div>
 
     <div id="msg" class="msg"></div>
-    <div class="hint">文字只显示姓名，鼠标悬停会显示对应 ID。</div>
+    <div class="hint">文字只显示姓名，鼠标悬停显示人物 ID；点击节点进入编辑页。</div>
 
     <div id="treeScroll">
       <div id="treeStage">
@@ -178,6 +178,7 @@
     const FAMILY_GAP = 36;
     const PADDING_X = 50;
     const PADDING_Y = 24;
+    const PERSON_DETAIL_URL = (id) => `/editor.html?id=${encodeURIComponent(id)}`;
 
     const idInput = document.getElementById("idInput");
     const nameInput = document.getElementById("nameInput");
@@ -213,9 +214,7 @@
 
     function clearTree() {
       stage.querySelectorAll(".family-group").forEach(el => el.remove());
-      while (svg.firstChild) {
-        svg.removeChild(svg.firstChild);
-      }
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
       nodePosMap = {};
     }
 
@@ -255,9 +254,7 @@
         family._childrenWidth = Math.max(childrenWidth, BOX_W);
         familiesWidth += family._childrenWidth;
 
-        if (familyIdx > 0) {
-          familiesWidth += FAMILY_GAP;
-        }
+        if (familyIdx > 0) familiesWidth += FAMILY_GAP;
       });
 
       node._subtreeWidth = Math.max(node._groupWidth, familiesWidth);
@@ -283,6 +280,8 @@
         topCenterY: node._top,
         bottomCenterX: node._centerX,
         bottomCenterY: node._bottomY,
+        selfBox: null,
+        spouseBoxes: {}
       };
 
       if (!node.families || node.families.length === 0) return;
@@ -290,9 +289,7 @@
       let totalFamiliesWidth = 0;
       node.families.forEach((family, idx) => {
         totalFamiliesWidth += family._childrenWidth;
-        if (idx > 0) {
-          totalFamiliesWidth += FAMILY_GAP;
-        }
+        if (idx > 0) totalFamiliesWidth += FAMILY_GAP;
       });
 
       let familyCursor = left + (subtreeWidth - totalFamiliesWidth) / 2;
@@ -307,9 +304,7 @@
         family.children.forEach((child, idx) => {
           layout(child, childCursor, childTop);
           childCursor += child._subtreeWidth;
-          if (idx < family.children.length - 1) {
-            childCursor += H_GAP;
-          }
+          if (idx < family.children.length - 1) childCursor += H_GAP;
         });
 
         familyCursor += family._childrenWidth + FAMILY_GAP;
@@ -317,9 +312,7 @@
     }
 
     function getDepth(node) {
-      if (!node.families || node.families.length === 0) {
-        return 1;
-      }
+      if (!node.families || node.families.length === 0) return 1;
 
       let maxDepth = 0;
       node.families.forEach(f => {
@@ -339,43 +332,62 @@
       path.setAttribute("stroke-width", String(width));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
-      if (dashed) {
-        path.setAttribute("stroke-dasharray", "8 6");
-      }
+      if (dashed) path.setAttribute("stroke-dasharray", "8 6");
       svg.appendChild(path);
+    }
+
+    function getFamilyAnchor(node, family) {
+      const pos = nodePosMap[node.id];
+      if (!pos) {
+        return { x: node._centerX, y: node._bottomY };
+      }
+
+      if (family.spouse_id && pos.spouseBoxes && pos.spouseBoxes[family.spouse_id]) {
+        const box = pos.spouseBoxes[family.spouse_id];
+        return {
+          x: box.centerX,
+          y: box.bottomY
+        };
+      }
+
+      if (pos.selfBox) {
+        return {
+          x: pos.selfBox.centerX,
+          y: pos.selfBox.bottomY
+        };
+      }
+
+      return {
+        x: pos.bottomCenterX,
+        y: pos.bottomCenterY
+      };
     }
 
     function drawFamilyLines(node) {
       if (!node.families || node.families.length === 0) return;
 
-      const parent = nodePosMap[node.id];
-      const py = parent.bottomCenterY;
-      const trunkY = py + 34;
-
-      createSvgPath(`M ${parent.bottomCenterX} ${py} L ${parent.bottomCenterX} ${trunkY}`);
-
-      if (node.families.length === 1) {
-        const f = node.families[0];
-        createSvgPath(`M ${parent.bottomCenterX} ${trunkY} L ${f._centerX} ${trunkY}`);
-      } else {
-        const minX = Math.min(...node.families.map(f => f._centerX));
-        const maxX = Math.max(...node.families.map(f => f._centerX));
-        createSvgPath(`M ${minX} ${trunkY} L ${maxX} ${trunkY}`);
-      }
-
-      node.families.forEach(family => {
-        createSvgPath(`M ${family._centerX} ${trunkY} L ${family._centerX} ${trunkY + 18}`);
+      node.families.forEach((family) => {
+        const anchor = getFamilyAnchor(node, family);
 
         if (family.children.length === 1) {
           const child = nodePosMap[family.children[0].id];
-          createSvgPath(`M ${family._centerX} ${trunkY + 18} L ${child.topCenterX} ${child.topCenterY}`);
-        } else if (family.children.length > 1) {
+          if (!child) return;
+
+          const branchY = anchor.y + 34;
+          createSvgPath(`M ${anchor.x} ${anchor.y} L ${anchor.x} ${branchY}`);
+          createSvgPath(`M ${anchor.x} ${branchY} L ${child.topCenterX} ${child.topCenterY}`);
+          return;
+        }
+
+        if (family.children.length > 1) {
           const children = family.children.map(c => nodePosMap[c.id]).filter(Boolean);
-          const branchY = trunkY + 52;
+          if (children.length === 0) return;
+
+          const branchY = anchor.y + 34;
           const minX = Math.min(...children.map(c => c.topCenterX));
           const maxX = Math.max(...children.map(c => c.topCenterX));
 
-          createSvgPath(`M ${family._centerX} ${trunkY + 18} L ${family._centerX} ${branchY}`);
+          createSvgPath(`M ${anchor.x} ${anchor.y} L ${anchor.x} ${branchY}`);
           createSvgPath(`M ${minX} ${branchY} L ${maxX} ${branchY}`);
 
           children.forEach(c => {
@@ -408,6 +420,11 @@
       });
     }
 
+    function openPersonDetail(id) {
+      if (!id) return;
+      window.location.href = PERSON_DETAIL_URL(id);
+    }
+
     function renderGroup(node) {
       const group = document.createElement("div");
       group.className = "family-group";
@@ -420,14 +437,37 @@
       self.className = "tree-node person";
       self.textContent = node.label || node.id || "";
       self.title = node.title || node.id || "";
+      self.addEventListener("click", () => openPersonDetail(node.id));
       group.appendChild(self);
 
-      (node.spouses || []).forEach(sp => {
+      const selfLeft = GROUP_PAD_X;
+      const selfTop = GROUP_PAD_Y;
+      nodePosMap[node.id].selfBox = {
+        left: node._left + selfLeft,
+        top: node._top + selfTop,
+        centerX: node._left + selfLeft + BOX_W / 2,
+        centerY: node._top + selfTop + BOX_H / 2,
+        bottomY: node._top + selfTop + BOX_H
+      };
+
+      (node.spouses || []).forEach((sp, idx) => {
         const el = document.createElement("div");
         el.className = "tree-node spouse";
         el.textContent = sp.label || sp.id || "";
         el.title = sp.title || sp.id || "";
+        el.addEventListener("click", () => openPersonDetail(sp.id));
         group.appendChild(el);
+
+        const left = GROUP_PAD_X + BOX_W + INNER_GAP + idx * (BOX_W + INNER_GAP);
+        const top = GROUP_PAD_Y;
+
+        nodePosMap[node.id].spouseBoxes[sp.id] = {
+          left: node._left + left,
+          top: node._top + top,
+          centerX: node._left + left + BOX_W / 2,
+          centerY: node._top + top + BOX_H / 2,
+          bottomY: node._top + top + BOX_H
+        };
       });
 
       stage.appendChild(group);
