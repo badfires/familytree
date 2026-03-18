@@ -9,19 +9,42 @@ import (
 	"family-tree/model"
 )
 
-func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
-	personID := strings.TrimSpace(a.PersonID)
-	toFatherID := strings.TrimSpace(a.ToFatherID)
-	toMotherID := strings.TrimSpace(a.ToMotherID)
+func normalizeAdoption(a model.Adoption) model.Adoption {
+	a.ID = strings.TrimSpace(a.ID)
+	a.PersonID = strings.TrimSpace(a.PersonID)
+	a.FromFatherID = strings.TrimSpace(a.FromFatherID)
+	a.FromMotherID = strings.TrimSpace(a.FromMotherID)
+	a.ToFatherID = strings.TrimSpace(a.ToFatherID)
+	a.ToMotherID = strings.TrimSpace(a.ToMotherID)
+	a.Note = strings.TrimSpace(a.Note)
+	return a
+}
 
-	if personID == "" {
+func fillAdoptionFromCurrentParents(a *model.Adoption) error {
+	p, err := GetPerson(a.PersonID)
+	if err != nil {
+		return err
+	}
+	if a.FromFatherID == "" {
+		a.FromFatherID = strings.TrimSpace(p.FatherID)
+	}
+	if a.FromMotherID == "" {
+		a.FromMotherID = strings.TrimSpace(p.MotherID)
+	}
+	return nil
+}
+
+func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
+	a = normalizeAdoption(a)
+
+	if a.PersonID == "" {
 		return nil, errors.New("person id is required")
 	}
-	if toFatherID == "" && toMotherID == "" {
+	if a.ToFatherID == "" && a.ToMotherID == "" {
 		return nil, errors.New("to_father_id or to_mother_id is required")
 	}
 
-	exists, err := PersonExists(personID)
+	exists, err := PersonExists(a.PersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -29,12 +52,8 @@ func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
 		return nil, errors.New("person does not exist")
 	}
 
-	person, err := GetPerson(personID)
-	if err != nil {
+	if err := fillAdoptionFromCurrentParents(&a); err != nil {
 		return nil, err
-	}
-	if person == nil {
-		return nil, errors.New("person does not exist")
 	}
 
 	tx, err := database.DB.Begin()
@@ -43,74 +62,35 @@ func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
 	}
 	defer tx.Rollback()
 
-	// 自动记录原父母
-	a.PersonID = personID
-	a.FromFatherID = strings.TrimSpace(person.FatherID)
-	a.FromMotherID = strings.TrimSpace(person.MotherID)
-	a.ToFatherID = toFatherID
-	a.ToMotherID = toMotherID
-
-	// 已存在过继记录则更新，否则创建
-	existing, err := getAdoptionTx(tx, personID)
+	existed, err := getAdoptionByPersonIDTx(tx, a.PersonID)
 	if err != nil {
 		return nil, err
 	}
-
-	if existing != nil {
-		a.ID = existing.ID
-		_, err = tx.Exec(`
-			UPDATE adoptions
-			   SET from_father_id = ?,
-			       from_mother_id = ?,
-			       to_father_id   = ?,
-			       to_mother_id   = ?,
-			       note           = ?,
-			       updated_at     = CURRENT_TIMESTAMP
-			 WHERE person_id = ?
-		`,
-			a.FromFatherID,
-			a.FromMotherID,
-			a.ToFatherID,
-			a.ToMotherID,
-			a.Note,
-			a.PersonID,
-		)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		newID, err := NextID(tx, SeqTypeAdoption, AdoptionPrefix)
-		if err != nil {
-			return nil, err
-		}
-		a.ID = newID
-
-		_, err = tx.Exec(`
-			INSERT INTO adoptions
-				(id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note, updated_at)
-			VALUES
-				(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-		`,
-			a.ID,
-			a.PersonID,
-			a.FromFatherID,
-			a.FromMotherID,
-			a.ToFatherID,
-			a.ToMotherID,
-			a.Note,
-		)
-		if err != nil {
-			return nil, err
-		}
+	if existed != nil {
+		return existed, nil
 	}
 
-	// 同步把 people 当前父母改成过继后的父母
-	_, err = tx.Exec(`
-		UPDATE people
-		   SET father_id = ?,
-		       mother_id = ?
-		 WHERE id = ?
-	`, a.ToFatherID, a.ToMotherID, a.PersonID)
+	newID, err := NextID(tx, SeqTypeAdoption, AdoptionPrefix)
+	if err != nil {
+		return nil, err
+	}
+	a.ID = newID
+
+	query := `
+INSERT INTO adoptions (
+    id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+`
+	_, err = tx.Exec(
+		query,
+		a.ID,
+		a.PersonID,
+		a.FromFatherID,
+		a.FromMotherID,
+		a.ToFatherID,
+		a.ToMotherID,
+		a.Note,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -121,13 +101,72 @@ func CreateAdoption(a model.Adoption) (*model.Adoption, error) {
 	return &a, nil
 }
 
+func UpdateAdoption(a model.Adoption) error {
+	a = normalizeAdoption(a)
+
+	if a.ID == "" {
+		return errors.New("adoption id is required")
+	}
+	if a.PersonID == "" {
+		return errors.New("person id is required")
+	}
+	if a.ToFatherID == "" && a.ToMotherID == "" {
+		return errors.New("to_father_id or to_mother_id is required")
+	}
+
+	if err := fillAdoptionFromCurrentParents(&a); err != nil {
+		return err
+	}
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	existed, err := getAdoptionByPersonIDTx(tx, a.PersonID)
+	if err != nil {
+		return err
+	}
+	if existed != nil && existed.ID != a.ID {
+		return errors.New("another adoption already exists for this person: " + existed.ID)
+	}
+
+	query := `
+UPDATE adoptions
+SET person_id = ?,
+    from_father_id = ?,
+    from_mother_id = ?,
+    to_father_id = ?,
+    to_mother_id = ?,
+    note = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`
+	_, err = tx.Exec(
+		query,
+		a.PersonID,
+		a.FromFatherID,
+		a.FromMotherID,
+		a.ToFatherID,
+		a.ToMotherID,
+		a.Note,
+		a.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func GetAdoption(personID string) (*model.Adoption, error) {
 	query := `
-		SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
-		FROM adoptions
-		WHERE person_id = ?
-	`
-	row := database.DB.QueryRow(query, personID)
+SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
+FROM adoptions
+WHERE person_id = ?
+`
+	row := database.DB.QueryRow(query, strings.TrimSpace(personID))
 
 	var a model.Adoption
 	if err := row.Scan(
@@ -139,22 +178,106 @@ func GetAdoption(personID string) (*model.Adoption, error) {
 		&a.ToMotherID,
 		&a.Note,
 	); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
-
 	return &a, nil
 }
 
-func GetAdoptionsByAdoptiveParent(parentID string) ([]model.Adoption, error) {
+func GetAdoptionByID(id string) (*model.Adoption, error) {
 	query := `
-		SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
-		FROM adoptions
-		WHERE to_father_id = ? OR to_mother_id = ?
-		ORDER BY person_id
-	`
+SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
+FROM adoptions
+WHERE id = ?
+`
+	row := database.DB.QueryRow(query, strings.TrimSpace(id))
+
+	var a model.Adoption
+	if err := row.Scan(
+		&a.ID,
+		&a.PersonID,
+		&a.FromFatherID,
+		&a.FromMotherID,
+		&a.ToFatherID,
+		&a.ToMotherID,
+		&a.Note,
+	); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func getAdoptionByPersonIDTx(tx *sql.Tx, personID string) (*model.Adoption, error) {
+	query := `
+SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
+FROM adoptions
+WHERE person_id = ?
+LIMIT 1
+`
+	row := tx.QueryRow(query, strings.TrimSpace(personID))
+
+	var a model.Adoption
+	err := row.Scan(
+		&a.ID,
+		&a.PersonID,
+		&a.FromFatherID,
+		&a.FromMotherID,
+		&a.ToFatherID,
+		&a.ToMotherID,
+		&a.Note,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+func GetAdoptionsByAdoptivePair(fatherID, motherID string) ([]model.Adoption, error) {
+	fatherID = strings.TrimSpace(fatherID)
+	motherID = strings.TrimSpace(motherID)
+
+	query := `
+SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
+FROM adoptions
+WHERE COALESCE(to_father_id, '') = COALESCE(?, '')
+  AND COALESCE(to_mother_id, '') = COALESCE(?, '')
+ORDER BY id
+`
+	rows, err := database.DB.Query(query, fatherID, motherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []model.Adoption
+	for rows.Next() {
+		var a model.Adoption
+		if err := rows.Scan(
+			&a.ID,
+			&a.PersonID,
+			&a.FromFatherID,
+			&a.FromMotherID,
+			&a.ToFatherID,
+			&a.ToMotherID,
+			&a.Note,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, a)
+	}
+	return list, nil
+}
+
+func GetAdoptionsByAdoptiveParent(parentID string) ([]model.Adoption, error) {
+	parentID = strings.TrimSpace(parentID)
+
+	query := `
+SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
+FROM adoptions
+WHERE to_father_id = ? OR to_mother_id = ?
+ORDER BY id
+`
 	rows, err := database.DB.Query(query, parentID, parentID)
 	if err != nil {
 		return nil, err
@@ -178,62 +301,4 @@ func GetAdoptionsByAdoptiveParent(parentID string) ([]model.Adoption, error) {
 		list = append(list, a)
 	}
 	return list, nil
-}
-
-func GetAdoptionsByAdoptivePair(toFatherID, toMotherID string) ([]model.Adoption, error) {
-	query := `
-		SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
-		FROM adoptions
-		WHERE ifnull(to_father_id, '') = ifnull(?, '')
-		  AND ifnull(to_mother_id, '') = ifnull(?, '')
-		ORDER BY person_id
-	`
-	rows, err := database.DB.Query(query, toFatherID, toMotherID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []model.Adoption
-	for rows.Next() {
-		var a model.Adoption
-		if err := rows.Scan(
-			&a.ID,
-			&a.PersonID,
-			&a.FromFatherID,
-			&a.FromMotherID,
-			&a.ToFatherID,
-			&a.ToMotherID,
-			&a.Note,
-		); err != nil {
-			return nil, err
-		}
-		list = append(list, a)
-	}
-	return list, nil
-}
-
-func getAdoptionTx(tx *sql.Tx, personID string) (*model.Adoption, error) {
-	row := tx.QueryRow(`
-		SELECT id, person_id, from_father_id, from_mother_id, to_father_id, to_mother_id, note
-		FROM adoptions
-		WHERE person_id = ?
-	`, personID)
-
-	var a model.Adoption
-	if err := row.Scan(
-		&a.ID,
-		&a.PersonID,
-		&a.FromFatherID,
-		&a.FromMotherID,
-		&a.ToFatherID,
-		&a.ToMotherID,
-		&a.Note,
-	); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &a, nil
 }

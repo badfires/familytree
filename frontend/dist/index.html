@@ -154,11 +154,13 @@
       <input id="idInput" placeholder="输入人物ID，如 p1" value="p1" />
       <input id="nameInput" placeholder="输入姓名搜索" />
       <button id="viewBtn">树图视图</button>
-      <a href="/editor.html" target="_blank">打开录入页</a>
+      <a id="editorLink" href="editor.html" style="display:none;">打开录入页</a>
+      <button id="adminLoginBtn" type="button">管理员登录</button>
+      <button id="adminLogoutBtn" type="button" style="display:none;">退出管理</button>
     </div>
 
     <div id="msg" class="msg"></div>
-    <div class="hint">文字只显示姓名，鼠标悬停显示人物 ID；点击节点进入编辑页。</div>
+    <div class="hint">文字只显示姓名，鼠标悬停显示人物 ID；点击节点进入人物详情页。</div>
 
     <div id="treeScroll">
       <div id="treeStage">
@@ -167,6 +169,7 @@
     </div>
   </div>
 
+  <script src="auth.js"></script>
   <script>
     const BOX_W = 200;
     const BOX_H = 64;
@@ -178,7 +181,7 @@
     const FAMILY_GAP = 36;
     const PADDING_X = 50;
     const PADDING_Y = 24;
-    const PERSON_DETAIL_URL = (id) => `/editor.html?id=${encodeURIComponent(id)}`;
+    const PERSON_DETAIL_URL = (id) => `person_detail.html?id=${encodeURIComponent(id)}`;
 
     const idInput = document.getElementById("idInput");
     const nameInput = document.getElementById("nameInput");
@@ -186,11 +189,28 @@
     const msgEl = document.getElementById("msg");
     const stage = document.getElementById("treeStage");
     const svg = document.getElementById("treeSvg");
+    const editorLink = document.getElementById("editorLink");
+    const adminLoginBtn = document.getElementById("adminLoginBtn");
+    const adminLogoutBtn = document.getElementById("adminLogoutBtn");
 
     let nodePosMap = {};
 
     function setMsg(text = "") {
       msgEl.textContent = text;
+    }
+
+    async function refreshAdminUI() {
+      try {
+        const st = await checkAdminStatus();
+        const authed = !!(st && st.authorized);
+        editorLink.style.display = authed ? "inline" : "none";
+        adminLogoutBtn.style.display = authed ? "inline-block" : "none";
+        adminLoginBtn.style.display = authed ? "none" : "inline-block";
+      } catch (_) {
+        editorLink.style.display = "none";
+        adminLogoutBtn.style.display = "none";
+        adminLoginBtn.style.display = "inline-block";
+      }
     }
 
     async function fetchJSON(url) {
@@ -338,29 +358,18 @@
 
     function getFamilyAnchor(node, family) {
       const pos = nodePosMap[node.id];
-      if (!pos) {
-        return { x: node._centerX, y: node._bottomY };
-      }
+      if (!pos) return { x: node._centerX, y: node._bottomY };
 
       if (family.spouse_id && pos.spouseBoxes && pos.spouseBoxes[family.spouse_id]) {
         const box = pos.spouseBoxes[family.spouse_id];
-        return {
-          x: box.centerX,
-          y: box.bottomY
-        };
+        return { x: box.centerX, y: box.bottomY };
       }
 
       if (pos.selfBox) {
-        return {
-          x: pos.selfBox.centerX,
-          y: pos.selfBox.bottomY
-        };
+        return { x: pos.selfBox.centerX, y: pos.selfBox.bottomY };
       }
 
-      return {
-        x: pos.bottomCenterX,
-        y: pos.bottomCenterY
-      };
+      return { x: pos.bottomCenterX, y: pos.bottomCenterY };
     }
 
     function drawFamilyLines(node) {
@@ -545,6 +554,23 @@
       }
     }
 
+    adminLoginBtn.addEventListener("click", async () => {
+      try {
+        const ok = await ensureAdminLogin();
+        if (!ok) return;
+        await refreshAdminUI();
+        setMsg("管理员登录成功");
+      } catch (e) {
+        setMsg(e.message || String(e));
+      }
+    });
+
+    adminLogoutBtn.addEventListener("click", async () => {
+      clearAdminPassword();
+      await refreshAdminUI();
+      setMsg("已退出管理模式");
+    });
+
     viewBtn.addEventListener("click", handleView);
     idInput.addEventListener("keydown", e => {
       if (e.key === "Enter") handleView();
@@ -553,7 +579,10 @@
       if (e.key === "Enter") handleView();
     });
 
-    window.addEventListener("load", handleView);
+    window.addEventListener("load", async () => {
+      await refreshAdminUI();
+      await handleView();
+    });
   </script>
 </body>
 </html>

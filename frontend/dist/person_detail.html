@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>人物详情</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: #f5f5f5;
+      color: #222;
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: 28px;
+    }
+
+    .topbar {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .topbar a, .topbar button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 40px;
+      padding: 0 16px;
+      border: 1px solid #999;
+      border-radius: 8px;
+      background: #fff;
+      color: #222;
+      text-decoration: none;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .hero {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+
+    .hero-name {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .hero-id {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 10px 18px;
+    }
+
+    .meta-item {
+      background: #fafafa;
+      border: 1px solid #eee;
+      border-radius: 10px;
+      padding: 10px 12px;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 14px;
+      padding: 18px;
+    }
+
+    .card h3 {
+      margin: 0 0 14px;
+      font-size: 20px;
+    }
+
+    .empty {
+      color: #888;
+      font-size: 14px;
+    }
+
+    .people-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .person-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 38px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid #cfd8e3;
+      background: #f8fbff;
+      color: #1f2d3d;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .person-chip:hover {
+      background: #eef6ff;
+    }
+
+    .marriage-block {
+      border: 1px solid #eee;
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      background: #fafafa;
+    }
+
+    .marriage-title {
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .row-title {
+      font-size: 13px;
+      color: #666;
+      margin: 10px 0 8px;
+    }
+
+    .status {
+      margin-top: 16px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #ddd;
+      min-height: 48px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .ok { color: #0a7a2f; }
+    .err { color: #c62828; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>人物详情</h1>
+
+    <div class="topbar">
+      <a href="index.html">返回树图页</a>
+      <a id="editBtn" href="editor.html">编辑当前人物</a>
+      <button type="button" id="reloadBtn">刷新</button>
+    </div>
+
+    <div id="hero" class="hero"></div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>父母</h3>
+        <div id="parentsBox"></div>
+      </div>
+
+      <div class="card">
+        <h3>配偶与子女</h3>
+        <div id="marriagesBox"></div>
+      </div>
+
+      <div class="card">
+        <h3>过继信息</h3>
+        <div id="adoptionBox"></div>
+      </div>
+    </div>
+
+    <div id="status" class="status">就绪</div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const heroEl = document.getElementById("hero");
+    const parentsBox = document.getElementById("parentsBox");
+    const marriagesBox = document.getElementById("marriagesBox");
+    const adoptionBox = document.getElementById("adoptionBox");
+    const editBtn = document.getElementById("editBtn");
+    const reloadBtn = document.getElementById("reloadBtn");
+
+    function setStatus(text, ok = true) {
+      statusEl.textContent = text;
+      statusEl.className = `status ${ok ? "ok" : "err"}`;
+    }
+
+    function getQueryID() {
+      return (new URLSearchParams(window.location.search).get("id") || "").trim();
+    }
+
+    function personDetailURL(id) {
+      return `person_detail.html?id=${encodeURIComponent(id)}`;
+    }
+
+    function editorURL(id) {
+      return `editor.html?id=${encodeURIComponent(id)}`;
+    }
+
+    function textOrDash(v) {
+      return v && String(v).trim() ? v : "—";
+    }
+
+    function personChip(person) {
+      if (!person || !person.id) return "";
+      const name = person.name || person.label || person.id || "";
+      return `<a class="person-chip" href="${personDetailURL(person.id)}">${escapeHtml(name)} (${escapeHtml(person.id)})</a>`;
+    }
+
+    function peopleListHTML(list) {
+      if (!Array.isArray(list) || list.length === 0) {
+        return `<div class="empty">暂无</div>`;
+      }
+      return `<div class="people-list">${list.map(personChip).join("")}</div>`;
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    async function api(url, options = {}) {
+      const resp = await fetch(url, options);
+      const text = await resp.text();
+      let data = null;
+
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (_) {
+        data = text;
+      }
+
+      if (!resp.ok) {
+        throw new Error(typeof data === "string" ? data : JSON.stringify(data));
+      }
+
+      return data;
+    }
+
+    function renderHero(center) {
+      if (!center) {
+        heroEl.innerHTML = `<div class="empty">未找到人物</div>`;
+        return;
+      }
+
+      editBtn.href = editorURL(center.id);
+
+      heroEl.innerHTML = `
+        <div class="hero-name">${escapeHtml(center.name || center.label || "")}</div>
+        <div class="hero-id">ID：${escapeHtml(center.id || "")}</div>
+
+        <div class="meta">
+          <div class="meta-item"><strong>性别：</strong>${escapeHtml(textOrDash(center.gender))}</div>
+          <div class="meta-item"><strong>出生日期：</strong>${escapeHtml(textOrDash(center.birth_date))}</div>
+          <div class="meta-item"><strong>出生地点：</strong>${escapeHtml(textOrDash(center.birth_place))}</div>
+          <div class="meta-item"><strong>去世日期：</strong>${escapeHtml(textOrDash(center.death_date))}</div>
+          <div class="meta-item"><strong>安葬地点：</strong>${escapeHtml(textOrDash(center.burial_place))}</div>
+          <div class="meta-item"><strong>备注：</strong>${escapeHtml(textOrDash(center.note))}</div>
+          <div class="meta-item" style="grid-column: 1 / -1;"><strong>生平：</strong>${escapeHtml(textOrDash(center.bio))}</div>
+        </div>
+      `;
+    }
+
+    function renderParents(parents) {
+      parentsBox.innerHTML = peopleListHTML(parents);
+    }
+
+    function renderMarriages(marriages) {
+      if (!Array.isArray(marriages) || marriages.length === 0) {
+        marriagesBox.innerHTML = `<div class="empty">暂无</div>`;
+        return;
+      }
+
+      marriagesBox.innerHTML = marriages.map((m, idx) => {
+        const spouses = Array.isArray(m.spouses) ? m.spouses : [];
+        const children = Array.isArray(m.children) ? m.children : [];
+        return `
+          <div class="marriage-block">
+            <div class="marriage-title">婚姻 ${idx + 1}${m.marriage_id ? `（${escapeHtml(m.marriage_id)}）` : ""}</div>
+            <div class="row-title">配偶</div>
+            ${peopleListHTML(spouses)}
+            <div class="row-title">子女</div>
+            ${peopleListHTML(children)}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderAdoption(adoption) {
+      if (!adoption) {
+        adoptionBox.innerHTML = `<div class="empty">暂无</div>`;
+        return;
+      }
+
+      adoptionBox.innerHTML = `
+        <div class="row-title">原父母</div>
+        ${peopleListHTML(adoption.from || [])}
+        <div class="row-title">过继后父母</div>
+        ${peopleListHTML(adoption.to || [])}
+        <div class="row-title">备注</div>
+        <div>${escapeHtml(textOrDash(adoption.note))}</div>
+      `;
+    }
+
+    async function loadDetail() {
+      try {
+        const id = getQueryID();
+        if (!id) {
+          throw new Error("缺少人物 ID");
+        }
+
+        const view = await api(`/family_view?id=${encodeURIComponent(id)}`);
+        renderHero(view.center || null);
+        renderParents(view.parents || []);
+        renderMarriages(view.marriages || []);
+        renderAdoption(view.adoption || null);
+        setStatus(`加载成功：${id}`);
+      } catch (e) {
+        heroEl.innerHTML = `<div class="empty">加载失败</div>`;
+        parentsBox.innerHTML = `<div class="empty">暂无</div>`;
+        marriagesBox.innerHTML = `<div class="empty">暂无</div>`;
+        adoptionBox.innerHTML = `<div class="empty">暂无</div>`;
+        setStatus(`加载失败：${e.message}`, false);
+      }
+    }
+
+    reloadBtn.addEventListener("click", loadDetail);
+    window.addEventListener("load", loadDetail);
+  </script>
+</body>
+</html>

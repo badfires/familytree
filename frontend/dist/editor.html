@@ -177,7 +177,7 @@
     <h1>族谱录入</h1>
 
     <div class="topbar">
-      <a href="/index.html">打开树图页</a>
+      <a href="index.html">打开树图页</a>
     </div>
 
     <div class="grid">
@@ -333,8 +333,13 @@
       </div>
 
       <div class="card">
-        <h3>过继</h3>
-        <p class="help">只填写被过继人物 ID 和过继后的父母 ID。原父母会自动从当前人物关系中记录。</p>
+        <h3>新增 / 编辑过继</h3>
+        <p class="help">新增时过继 ID 可不填；读取 / 更新时填写已有过继 ID，或填写被过继人物 ID 后读取。</p>
+
+        <div class="form-row">
+          <label for="adoptID">过继 ID</label>
+          <input id="adoptID" type="text" placeholder="如 a1" />
+        </div>
 
         <div class="form-row">
           <label for="adoptPersonID">被过继人物 ID</label>
@@ -353,12 +358,24 @@
         </div>
 
         <div class="form-row">
+          <label for="adoptFromFatherID">原父亲 ID（自动回填）</label>
+          <input id="adoptFromFatherID" type="text" readonly />
+        </div>
+
+        <div class="form-row">
+          <label for="adoptFromMotherID">原母亲 ID（自动回填）</label>
+          <input id="adoptFromMotherID" type="text" readonly />
+        </div>
+
+        <div class="form-row">
           <label for="adoptNote">备注</label>
           <textarea id="adoptNote"></textarea>
         </div>
 
         <div class="form-actions">
-          <button type="button" onclick="submitAdoption()">保存过继</button>
+          <button type="button" onclick="createAdoption()">保存过继</button>
+          <button type="button" onclick="loadAdoption()">读取过继</button>
+          <button type="button" onclick="updateAdoption()">更新过继</button>
         </div>
       </div>
     </div>
@@ -366,6 +383,7 @@
     <div id="status" class="status">就绪</div>
   </div>
 
+  <script src="auth.js"></script>
   <script>
     const statusEl = document.getElementById("status");
 
@@ -375,7 +393,7 @@
     }
 
     async function api(url, options = {}) {
-      const resp = await fetch(url, options);
+      const resp = await adminFetch(url, options);
       const text = await resp.text();
       let data = null;
 
@@ -386,6 +404,10 @@
       }
 
       if (!resp.ok) {
+        if (resp.status === 401) {
+          clearAdminPassword();
+          throw new Error("没有编辑权限，请先管理员登录");
+        }
         throw new Error(typeof data === "string" ? data : JSON.stringify(data));
       }
 
@@ -437,6 +459,28 @@
         wife_id: document.getElementById("marriageWifeID").value.trim(),
         marriage_date: document.getElementById("marriageDate").value.trim(),
         note: document.getElementById("marriageNote").value.trim()
+      };
+    }
+
+    function fillAdoptionForm(a) {
+      document.getElementById("adoptID").value = a.id || "";
+      document.getElementById("adoptPersonID").value = a.person_id || "";
+      document.getElementById("adoptFromFatherID").value = a.from_father_id || "";
+      document.getElementById("adoptFromMotherID").value = a.from_mother_id || "";
+      document.getElementById("adoptToFatherID").value = a.to_father_id || "";
+      document.getElementById("adoptToMotherID").value = a.to_mother_id || "";
+      document.getElementById("adoptNote").value = a.note || "";
+    }
+
+    function collectAdoptionForm() {
+      return {
+        id: document.getElementById("adoptID").value.trim(),
+        person_id: document.getElementById("adoptPersonID").value.trim(),
+        from_father_id: document.getElementById("adoptFromFatherID").value.trim(),
+        from_mother_id: document.getElementById("adoptFromMotherID").value.trim(),
+        to_father_id: document.getElementById("adoptToFatherID").value.trim(),
+        to_mother_id: document.getElementById("adoptToMotherID").value.trim(),
+        note: document.getElementById("adoptNote").value.trim()
       };
     }
 
@@ -546,7 +590,7 @@
         if (!marriageID) throw new Error("请填写婚姻 ID");
         if (!childID) throw new Error("请填写子女 ID");
 
-        await api("/marriage/bind_child", {
+        await api("/marriage/add_child", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -561,35 +605,69 @@
       }
     }
 
-    async function submitAdoption() {
+    async function createAdoption() {
       try {
-        const personID = document.getElementById("adoptPersonID").value.trim();
-        const toFatherID = document.getElementById("adoptToFatherID").value.trim();
-        const toMotherID = document.getElementById("adoptToMotherID").value.trim();
-        const note = document.getElementById("adoptNote").value.trim();
-
-        if (!personID) throw new Error("请填写被过继人物 ID");
-        if (!toFatherID && !toMotherID) throw new Error("请至少填写一个过继后父母 ID");
+        const body = collectAdoptionForm();
+        delete body.id;
+        delete body.from_father_id;
+        delete body.from_mother_id;
 
         const data = await api("/adoption/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            person_id: personID,
-            to_father_id: toFatherID,
-            to_mother_id: toMotherID,
-            note: note
-          })
+          body: JSON.stringify(body)
         });
 
-        setStatus(`过继保存成功：${data.id || ""}`);
+        fillAdoptionForm(data);
+        setStatus(`保存过继成功：${data.id || ""}`);
       } catch (e) {
-        setStatus(`过继保存失败：${e.message}`, false);
+        setStatus(`保存过继失败：${e.message}`, false);
       }
     }
 
-    async function downloadPeopleTemplate() {
-      window.location.href = "/person/template";
+    async function loadAdoption() {
+      try {
+        const id = document.getElementById("adoptID").value.trim();
+        const personID = document.getElementById("adoptPersonID").value.trim();
+
+        let url = "";
+        if (id) {
+          url = `/adoption/get?id=${encodeURIComponent(id)}`;
+        } else if (personID) {
+          url = `/adoption/get?person_id=${encodeURIComponent(personID)}`;
+        } else {
+          throw new Error("请填写过继 ID 或被过继人物 ID");
+        }
+
+        const data = await api(url);
+        fillAdoptionForm(data);
+        setStatus(`读取过继成功：${data.id || ""}`);
+      } catch (e) {
+        setStatus(`读取过继失败：${e.message}`, false);
+      }
+    }
+
+    async function updateAdoption() {
+      try {
+        const body = collectAdoptionForm();
+        if (!body.id) throw new Error("请填写过继 ID");
+        if (!body.person_id) throw new Error("请填写被过继人物 ID");
+
+        const data = await api("/adoption/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        setStatus(`更新过继成功：${data.id || body.id}`);
+        await loadAdoption();
+      } catch (e) {
+        setStatus(`更新过继失败：${e.message}`, false);
+      }
+    }
+
+    function downloadPeopleTemplate() {
+      window.location.href = "/person/export_template";
     }
 
     async function importPeopleCsv() {
@@ -602,13 +680,17 @@
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
 
-        const resp = await fetch("/person/import_csv", {
+        const resp = await adminFetch("/person/import_csv", {
           method: "POST",
           body: formData
         });
 
         const text = await resp.text();
         if (!resp.ok) {
+          if (resp.status === 401) {
+            clearAdminPassword();
+            throw new Error("没有编辑权限，请先管理员登录");
+          }
           throw new Error(text || "导入失败");
         }
 
@@ -678,7 +760,14 @@
       await loadPerson();
     }
 
-    window.addEventListener("load", initFromQuery);
+    window.addEventListener("load", async () => {
+      const ok = await ensureAdminLogin();
+      if (!ok) {
+        window.location.href = "index.html";
+        return;
+      }
+      await initFromQuery();
+    });
   </script>
 </body>
 </html>

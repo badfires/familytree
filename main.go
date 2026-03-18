@@ -20,27 +20,40 @@ var assets embed.FS
 func buildMux() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/person/create", handler.CreatePersonHandler)
+	// 鉴权
+	mux.HandleFunc("/auth/login", handler.AdminLoginHandler)
+	mux.HandleFunc("/auth/status", handler.AdminStatusHandler)
+
+	// 人物
 	mux.HandleFunc("/person/get", handler.GetPersonHandler)
-	mux.HandleFunc("/person/update", handler.UpdatePersonHandler)
 	mux.HandleFunc("/person/search", handler.SearchPersonHandler)
 	mux.HandleFunc("/person/suggest", handler.SearchSuggestHandler)
-
-	mux.HandleFunc("/marriage/create", handler.CreateMarriageHandler)
-	mux.HandleFunc("/marriage/get", handler.GetMarriageHandler)
-	mux.HandleFunc("/marriage/update", handler.UpdateMarriageHandler)
-	mux.HandleFunc("/marriage/add_child", handler.AddMarriageChildHandler)
-
-	mux.HandleFunc("/adoption/create", handler.CreateAdoptionHandler)
-
 	mux.HandleFunc("/person/export_template", handler.ExportPersonTemplateHandler)
-	mux.HandleFunc("/person/import_csv", handler.ImportPersonCSVHandler)
 	mux.HandleFunc("/person/min_id", handler.GetMinPersonIDHandler)
 
+	// 树图 / 详情
 	mux.HandleFunc("/tree", handler.GetTreeHandler)
 	mux.HandleFunc("/graph", handler.GraphHandler)
 	mux.HandleFunc("/family_graph", handler.FamilyGraphHandler)
 	mux.HandleFunc("/family_view", handler.FamilyViewHandler)
+
+	// 婚姻读取
+	mux.HandleFunc("/marriage/get", handler.GetMarriageHandler)
+
+	// 过继读取
+	mux.HandleFunc("/adoption/get", handler.GetAdoptionHandler)
+
+	// 写接口：管理员权限
+	mux.HandleFunc("/person/create", handler.RequireAdmin(handler.CreatePersonHandler))
+	mux.HandleFunc("/person/update", handler.RequireAdmin(handler.UpdatePersonHandler))
+	mux.HandleFunc("/person/import_csv", handler.RequireAdmin(handler.ImportPersonCSVHandler))
+
+	mux.HandleFunc("/marriage/create", handler.RequireAdmin(handler.CreateMarriageHandler))
+	mux.HandleFunc("/marriage/update", handler.RequireAdmin(handler.UpdateMarriageHandler))
+	mux.HandleFunc("/marriage/add_child", handler.RequireAdmin(handler.AddMarriageChildHandler))
+
+	mux.HandleFunc("/adoption/create", handler.RequireAdmin(handler.CreateAdoptionHandler))
+	mux.HandleFunc("/adoption/update", handler.RequireAdmin(handler.UpdateAdoptionHandler))
 
 	return mux
 }
