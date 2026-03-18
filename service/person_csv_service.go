@@ -45,6 +45,7 @@ func GetNextPersonID() (string, error) {
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
+
 	return fmt.Sprintf("p%d", maxVal+1), nil
 }
 
@@ -66,6 +67,7 @@ func BuildPersonTemplateCSV() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	start := extractPersonIDNumber(nextID)
 	if start <= 0 {
 		start = 1
@@ -96,6 +98,7 @@ func BuildPersonTemplateCSV() ([]byte, error) {
 		{fmt.Sprintf("p%d", start+1), "李四", "female", "1952-03-01", "上海", "", "", "", "", "", ""},
 		{fmt.Sprintf("p%d", start+2), "张小明", "male", "1980-06-01", "广州", "", "", fmt.Sprintf("p%d", start), fmt.Sprintf("p%d", start+1), "", ""},
 	}
+
 	for _, row := range sampleRows {
 		if err := w.Write(row); err != nil {
 			return nil, err
@@ -112,12 +115,15 @@ func BuildPersonTemplateCSV() ([]byte, error) {
 func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 	cr := csv.NewReader(r)
 	cr.TrimLeadingSpace = true
+	cr.FieldsPerRecord = -1
 
-	rows, err := cr.ReadAll()
+	rawRows, err := cr.ReadAll()
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) < 2 {
+
+	rows := sanitizeCSVRows(rawRows)
+	if len(rows) == 0 {
 		return nil, errors.New("csv内容为空")
 	}
 
@@ -134,8 +140,13 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 		"bio",
 		"note",
 	}
+
 	if err := validateHeader(rows[0], expectedHeader); err != nil {
 		return nil, err
+	}
+
+	if len(rows) == 1 {
+		return nil, errors.New("csv只有表头，没有可导入的数据行")
 	}
 
 	existingIDs, err := loadExistingPersonIDs()
@@ -147,6 +158,7 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 		rowNum int
 		person model.Person
 	}
+
 	var parsed []personRow
 	csvIDs := make(map[string]struct{})
 	maxImportedPersonNo := 0
@@ -172,6 +184,7 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 		if isEmptyPersonRow(p) {
 			continue
 		}
+
 		if p.ID == "" {
 			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: id不能为空", rowNum)
 		}
@@ -181,6 +194,7 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 		if p.Name == "" {
 			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: name不能为空", rowNum)
 		}
+
 		if _, ok := csvIDs[p.ID]; ok {
 			return &PersonCSVImportResult{Success: false, Row: rowNum}, fmt.Errorf("第%d行: csv内id重复: %s", rowNum, p.ID)
 		}
@@ -195,6 +209,10 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 
 		csvIDs[p.ID] = struct{}{}
 		parsed = append(parsed, personRow{rowNum: rowNum, person: p})
+	}
+
+	if len(parsed) == 0 {
+		return nil, errors.New("csv没有有效数据行")
 	}
 
 	allKnownIDs := make(map[string]struct{}, len(existingIDs)+len(csvIDs))
@@ -256,12 +274,10 @@ func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
 		imported++
 	}
 
-	// 把 person 序列推进到导入后的最大值，避免后续 CreatePerson 生成重复 ID
 	if err := bumpSequenceToAtLeast(tx, SeqTypePerson, maxImportedPersonNo); err != nil {
 		return nil, err
 	}
 
-	// 自动补 marriage + marriage_children
 	for _, item := range parsed {
 		p := item.person
 		if p.FatherID == "" || p.MotherID == "" {
@@ -300,12 +316,45 @@ func validateHeader(actual, expected []string) error {
 	if len(actual) < len(expected) {
 		return fmt.Errorf("csv表头列数不正确")
 	}
+
 	for i := range expected {
-		if strings.TrimSpace(actual[i]) != expected[i] {
-			return fmt.Errorf("csv表头不正确，第%d列应为 %s，实际为 %s", i+1, expected[i], strings.TrimSpace(actual[i]))
+		col := strings.TrimSpace(actual[i])
+		col = strings.TrimPrefix(col, "\uFEFF")
+		if col != expected[i] {
+			return fmt.Errorf("csv表头不正确，第%d列应为 %s，实际为 %s", i+1, expected[i], col)
 		}
 	}
 	return nil
+}
+
+func sanitizeCSVRows(rows [][]string) [][]string {
+	out := make([][]string, 0, len(rows))
+	for i, row := range rows {
+		cleaned := make([]string, len(row))
+		copy(cleaned, row)
+
+		if i == 0 && len(cleaned) > 0 {
+			cleaned[0] = strings.TrimPrefix(cleaned[0], "\uFEFF")
+		}
+
+		if isEmptyCSVRow(cleaned) {
+			continue
+		}
+		out = append(out, cleaned)
+	}
+	return out
+}
+
+func isEmptyCSVRow(row []string) bool {
+	if len(row) == 0 {
+		return true
+	}
+	for _, v := range row {
+		if strings.TrimSpace(v) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeRow(row []string, expectedLen int) []string {
@@ -355,10 +404,7 @@ func bumpSequenceToAtLeast(tx *sql.Tx, seqType string, target int) error {
 	}
 	_, err := tx.Exec(`
 		UPDATE id_sequences
-		SET current_value = CASE
-			WHEN current_value < ? THEN ?
-			ELSE current_value
-		END
+		SET current_value = CASE WHEN current_value < ? THEN ? ELSE current_value END
 		WHERE seq_type = ?
 	`, target, target, seqType)
 	return err
@@ -397,7 +443,6 @@ func createMarriageTx(tx *sql.Tx, fatherID, motherID, marriageDate, note string)
 	if err != nil {
 		return "", err
 	}
-
 	return newID, nil
 }
 
