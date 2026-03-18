@@ -197,7 +197,7 @@
         </div>
         <div class="form-row" style="margin-top:12px;">
           <label for="peopleCsvFile">选择 people.csv</label>
-          <input id="peopleCsvFile" type="file" accept=".csv" />
+          <input id="peopleCsvFile" type="file" accept=".csv,text/csv" />
         </div>
         <div class="form-actions">
           <button type="button" onclick="importPeopleCsv()">导入人物 CSV</button>
@@ -673,12 +673,26 @@
     async function importPeopleCsv() {
       try {
         const fileInput = document.getElementById("peopleCsvFile");
-        if (!fileInput.files || fileInput.files.length === 0) {
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
           throw new Error("请选择 CSV 文件");
         }
 
+        const file = fileInput.files[0];
+        if (!file) {
+          throw new Error("未读取到文件");
+        }
+        if (file.size <= 0) {
+          throw new Error("你选择的 CSV 文件为空");
+        }
+
+        const buffer = await file.arrayBuffer();
+        if (!buffer || buffer.byteLength === 0) {
+          throw new Error("文件内容为空");
+        }
+
+        const blob = new Blob([buffer], { type: file.type || "text/csv" });
         const formData = new FormData();
-        formData.append("file", fileInput.files[0]);
+        formData.append("file", blob, file.name);
 
         const resp = await adminFetch("/person/import_csv", {
           method: "POST",
@@ -686,15 +700,33 @@
         });
 
         const text = await resp.text();
+        let data = null;
+
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (_) {
+          data = text;
+        }
+
         if (!resp.ok) {
           if (resp.status === 401) {
             clearAdminPassword();
             throw new Error("没有编辑权限，请先管理员登录");
           }
-          throw new Error(text || "导入失败");
+          throw new Error(typeof data === "string" ? data : JSON.stringify(data));
         }
 
-        setStatus(text || "CSV 导入成功");
+        if (data && typeof data === "object" && data.success === false) {
+          throw new Error(data.error || "导入失败");
+        }
+
+        if (data && typeof data === "object") {
+          setStatus(data.message || `CSV 导入成功，导入 ${data.imported || 0} 条`);
+        } else {
+          setStatus(text || "CSV 导入成功");
+        }
+
+        fileInput.value = "";
       } catch (e) {
         setStatus(`CSV 导入失败：${e.message}`, false);
       }

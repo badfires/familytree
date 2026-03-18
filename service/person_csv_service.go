@@ -113,9 +113,23 @@ func BuildPersonTemplateCSV() ([]byte, error) {
 }
 
 func ImportPeopleCSV(r io.Reader) (*PersonCSVImportResult, error) {
-	cr := csv.NewReader(r)
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// 处理 UTF-8 BOM
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+
+	// 兼容 Windows 文本末尾空白
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, errors.New("上传文件为空")
+	}
+
+	cr := csv.NewReader(bytes.NewReader(data))
 	cr.TrimLeadingSpace = true
 	cr.FieldsPerRecord = -1
+	cr.LazyQuotes = true
 
 	rawRows, err := cr.ReadAll()
 	if err != nil {
