@@ -33,4 +33,4 @@ wails build -ldflags "-X family-tree/handler.AdminPassword=abcd@1234"
 
 **Display**
 
-![](E:\code\family-tree\image.png)
+![](https://github.com/badfires/familytree/blob/main/image.png)
