@@ -1,25 +1,36 @@
-这是一个非常简陋的版本, 我不是研发出身, 我出于对家族的历史兴趣产生了这个想法
+**FamilyTree APP**
 
-下载之后针对数据库有加密 密码 是abcd
-编译的采用如下语句,
+------
+
+This is a family tree display project developed in Golang, which can be used to showcase and manage your family history and member relationships.
+
+------
+
+## Features
+
+Visual display of members across multiple generations of a family
+The relationship links among family members
+Personal detailed information record
+Optional login verification mechanism
+Support the display of original parents and stepparents information during adoption
+
+## Quick Start
+
+download bin/familytree.exe  run is ok
+
+The encrypted string in the database is "abcd"
+The administrator password is "abcd@1234"
+
+There is no need to download family.db, as it will be automatically created during the first run. This file is very important and needs to be saved properly
+
+
+
+## Build
+
 wails build -ldflags "-X family-tree/handler.AdminPassword=abcd@1234"
-打开的时候管理密码是abcd@1234
-
-
-如果不想编译也没有问题 下载目录build/bin 下的familytree.exe 即可, 无需下载family.db,第一次运行的时候会自动创建,这个文件非常重要需要妥善保存
 
 
 
+**Display**
 
-
-
-
-
-
-
-
-FAMILYTREE_DB_KEY='abcd'
-set FAMILYTREE_ADMIN_PASSWORD=123456
-
-正式编译
-wails build -ldflags "-X family-tree/handler.AdminPassword=abcd@1234"
+![](E:\code\family-tree\image.png)
