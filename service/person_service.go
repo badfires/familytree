@@ -63,18 +63,8 @@ func UpdatePerson(p model.Person) error {
 
 	query := `
 		UPDATE people
-		SET
-			name=?,
-			gender=?,
-			birth_date=?,
-			birth_place=?,
-			death_date=?,
-			burial_place=?,
-			father_id=?,
-			mother_id=?,
-			bio=?,
-			note=?,
-			updated_at=CURRENT_TIMESTAMP
+		SET name=?, gender=?, birth_date=?, birth_place=?, death_date=?, burial_place=?,
+		    father_id=?, mother_id=?, bio=?, note=?, updated_at=CURRENT_TIMESTAMP
 		WHERE id=?
 	`
 	_, err := database.DB.Exec(
@@ -164,7 +154,7 @@ func GetChildren(id string) ([]model.Person, error) {
 		SELECT id,name,gender,birth_date,birth_place,death_date,burial_place,father_id,mother_id,bio,note
 		FROM people
 		WHERE father_id=? OR mother_id=?
-		ORDER BY id
+		ORDER BY CAST(SUBSTR(id, 2) AS INTEGER) DESC, id DESC
 	`
 	rows, err := database.DB.Query(query, id, id)
 	if err != nil {
@@ -221,13 +211,10 @@ func GetMinPersonID() (string, error) {
 	query := `
 		SELECT id
 		FROM people
-		WHERE id IS NOT NULL
-		  AND id <> ''
-		  AND SUBSTR(id, 1, 1) = 'p'
+		WHERE id IS NOT NULL AND id <> '' AND SUBSTR(id, 1, 1) = 'p'
 		ORDER BY CAST(SUBSTR(id, 2) AS INTEGER), id
 		LIMIT 1
 	`
-
 	var id string
 	err := database.DB.QueryRow(query).Scan(&id)
 	if err == sql.ErrNoRows {
