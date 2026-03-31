@@ -35,7 +35,7 @@
 
     .toolbar input {
       height: 42px;
-      min-width: 260px;
+      min-width: 220px;
       padding: 0 12px;
       border: 1px solid #b9b9b9;
       background: #fff;
@@ -43,24 +43,31 @@
       outline: none;
     }
 
-    .toolbar button {
+    .toolbar button,
+    .toolbar a.action-link {
       height: 42px;
       padding: 0 20px;
       border: 1px solid #8d8d8d;
       background: #fff;
       cursor: pointer;
       font-size: 16px;
+      text-decoration: none;
+      color: #222;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
-    .toolbar button:hover {
+    .toolbar button:hover,
+    .toolbar a.action-link:hover {
       background: #fafafa;
     }
 
-    .toolbar a {
+    .toolbar .text-link {
       color: #5a35c8;
       text-decoration: none;
       font-size: 16px;
-      margin-left: 10px;
+      margin-left: 8px;
     }
 
     .msg {
@@ -112,6 +119,13 @@
       background: rgba(255, 255, 255, 0.45);
     }
 
+    .node-box-wrap {
+      position: relative;
+      width: 200px;
+      height: 64px;
+      flex: 0 0 200px;
+    }
+
     .tree-node {
       width: 200px;
       height: 64px;
@@ -126,6 +140,7 @@
       user-select: none;
       background: #fff;
       cursor: pointer;
+      transition: transform 0.12s ease, filter 0.12s ease;
     }
 
     .tree-node.person {
@@ -144,6 +159,35 @@
       filter: brightness(0.98);
       transform: translateY(-1px);
     }
+
+    .node-toggle {
+      position: absolute;
+      left: -10px;
+      top: -10px;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid #9aa4b2;
+      background: #fff;
+      color: #334155;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      z-index: 2;
+    }
+
+    .node-toggle:hover {
+      background: #f8fafc;
+    }
+
+    .node-toggle.hidden {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -151,16 +195,17 @@
     <h1>族谱视图</h1>
 
     <div class="toolbar">
-      <input id="idInput" placeholder="输入人物ID，如 p1" value="p1" />
-      <input id="nameInput" placeholder="输入姓名搜索" />
-      <button id="viewBtn">树图视图</button>
-      <a id="editorLink" href="editor.html" style="display:none;">打开录入页</a>
+      <input id="idInput" placeholder="输入人物 ID，例如 p1" />
+      <input id="nameInput" placeholder="或输入姓名，例如 张三" />
+      <button id="viewBtn" type="button">查看族谱</button>
+
+      <a id="editorLink" class="text-link" href="editor.html" style="display:none;">打开录入页</a>
       <button id="adminLoginBtn" type="button">管理员登录</button>
       <button id="adminLogoutBtn" type="button" style="display:none;">退出管理</button>
     </div>
 
     <div id="msg" class="msg"></div>
-    <div class="hint">文字只显示姓名，鼠标悬停显示人物 ID；点击节点进入人物详情页。</div>
+    <div class="hint">点击人物卡片进入详情；点击左上角 +/- 可展开或折叠该人物后代。</div>
 
     <div id="treeScroll">
       <div id="treeStage">
@@ -169,7 +214,6 @@
     </div>
   </div>
 
-  <script src="auth.js"></script>
   <script>
     const BOX_W = 200;
     const BOX_H = 64;
@@ -194,42 +238,11 @@
     const adminLogoutBtn = document.getElementById("adminLogoutBtn");
 
     let nodePosMap = {};
+    let currentTreeResp = null;
+    const collapsedNodeIds = new Set();
 
     function setMsg(text = "") {
       msgEl.textContent = text;
-    }
-
-    async function refreshAdminUI() {
-      try {
-        const st = await checkAdminStatus();
-        const authed = !!(st && st.authorized);
-        editorLink.style.display = authed ? "inline" : "none";
-        adminLogoutBtn.style.display = authed ? "inline-block" : "none";
-        adminLoginBtn.style.display = authed ? "none" : "inline-block";
-      } catch (_) {
-        editorLink.style.display = "none";
-        adminLogoutBtn.style.display = "none";
-        adminLoginBtn.style.display = "inline-block";
-      }
-    }
-
-    async function fetchJSON(url) {
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || `请求失败: ${resp.status}`);
-      }
-      return resp.json();
-    }
-
-    async function resolveIdByName(name) {
-      const keyword = (name || "").trim();
-      if (!keyword) return "";
-      const list = await fetchJSON(`/person/search?name=${encodeURIComponent(keyword)}`);
-      if (Array.isArray(list) && list.length > 0) {
-        return list[0].id || "";
-      }
-      return "";
     }
 
     function clearTree() {
@@ -238,14 +251,141 @@
       nodePosMap = {};
     }
 
+    async function fetchJSON(url, options) {
+      const resp = await fetch(url, options);
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || `请求失败: ${resp.status}`);
+      }
+      return await resp.json();
+    }
+
+    async function checkAdminStatus() {
+      return await fetchJSON("/auth/status");
+    }
+
+    async function ensureAdminLogin() {
+      const password = window.prompt("请输入管理员密码");
+      if (password == null) return false;
+
+      const resp = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password })
+      });
+
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || "登录失败");
+      }
+
+      return true;
+    }
+
+    async function adminLogout() {
+      await fetch("/auth/logout", { method: "POST" }).catch(() => {});
+    }
+
+    async function refreshAdminUI() {
+      try {
+        const st = await checkAdminStatus();
+        const authed = !!(st && st.authorized);
+        editorLink.style.display = authed ? "" : "none";
+        adminLoginBtn.style.display = authed ? "none" : "";
+        adminLogoutBtn.style.display = authed ? "" : "none";
+      } catch {
+        editorLink.style.display = "none";
+        adminLoginBtn.style.display = "";
+        adminLogoutBtn.style.display = "none";
+      }
+    }
+
+    async function resolveIdByName(name) {
+      const keyword = (name || "").trim();
+      if (!keyword) return "";
+      const list = await fetchJSON(`/person/search?name=${encodeURIComponent(keyword)}`);
+      if (!Array.isArray(list) || list.length === 0) return "";
+      return (list[0] && (list[0].id || list[0].ID)) || "";
+    }
+
+    function hasVisibleChildren(node) {
+      if (!node || !Array.isArray(node.families)) return false;
+      return node.families.some(f => Array.isArray(f.children) && f.children.length > 0);
+    }
+
+    function deepCloneNodeForRender(node) {
+      if (!node) return null;
+
+      const cloned = {
+        ...node,
+        spouses: Array.isArray(node.spouses) ? node.spouses.map(sp => ({ ...sp })) : [],
+        families: []
+      };
+
+      if (collapsedNodeIds.has(node.id)) {
+        cloned.families = [];
+        return cloned;
+      }
+
+      cloned.families = (Array.isArray(node.families) ? node.families : []).map(f => ({
+        ...f,
+        spouse_id: f.spouse_id || f.spouseId || "",
+        children: (Array.isArray(f.children) ? f.children : [])
+          .map(child => deepCloneNodeForRender(child))
+          .filter(Boolean)
+      }));
+
+      return cloned;
+    }
+
+    function buildVisibleTreeResp(resp) {
+      if (!resp || !resp.root) return resp;
+      return {
+        ...resp,
+        extra_links: resp.extra_links || resp.extraLinks || [],
+        root: deepCloneNodeForRender(resp.root)
+      };
+    }
+
+    function toggleNode(nodeId) {
+      if (!nodeId) return;
+
+      if (collapsedNodeIds.has(nodeId)) {
+        collapsedNodeIds.delete(nodeId);
+      } else {
+        collapsedNodeIds.add(nodeId);
+      }
+
+      renderCurrentTree();
+    }
+
     function normalizeNode(node) {
       if (!node) return null;
+
+      node.id = node.id || node.ID || "";
+      node.label = node.label || node.Label || node.name || node.Name || node.id;
+      node.title = node.title || node.Title || node.id;
+      node.type = node.type || node.Type || "person";
 
       if (!Array.isArray(node.spouses)) node.spouses = [];
       if (!Array.isArray(node.families)) node.families = [];
 
+      node.spouses = node.spouses.map(sp => ({
+        ...sp,
+        id: sp.id || sp.ID || "",
+        label: sp.label || sp.Label || sp.name || sp.Name || sp.id || sp.ID || "",
+        title: sp.title || sp.Title || sp.id || sp.ID || ""
+      }));
+
+      node.families = node.families.map(f => ({
+        ...f,
+        key: f.key || f.Key || "",
+        spouse_id: f.spouse_id || f.spouseId || f.SpouseID || "",
+        family_type: f.family_type || f.familyType || f.FamilyType || "",
+        children: Array.isArray(f.children) ? f.children : []
+      }));
+
       node.families.forEach(f => {
-        if (!Array.isArray(f.children)) f.children = [];
         f.children.forEach(normalizeNode);
       });
 
@@ -414,8 +554,12 @@
       if (!Array.isArray(extraLinks)) return;
 
       extraLinks.forEach(link => {
-        const source = nodePosMap[link.source_id];
-        const target = nodePosMap[link.target_id];
+        const sourceId = link.source_id || link.sourceId || link.SourceID;
+        const targetId = link.target_id || link.targetId || link.TargetID;
+        const style = link.style || link.Style || "";
+
+        const source = nodePosMap[sourceId];
+        const target = nodePosMap[targetId];
         if (!source || !target) return;
 
         const sx = source.centerX;
@@ -425,7 +569,7 @@
 
         const midY = Math.min(sy, ty) - 24;
         const d = `M ${sx} ${sy} C ${sx} ${midY}, ${tx} ${midY}, ${tx} ${ty}`;
-        createSvgPath(d, "#999", link.style === "dashed", 2);
+        createSvgPath(d, "#999", style === "dashed", 2);
       });
     }
 
@@ -442,12 +586,32 @@
       group.style.width = `${node._groupWidth}px`;
       group.style.height = `${node._groupHeight}px`;
 
+      const selfWrap = document.createElement("div");
+      selfWrap.className = "node-box-wrap";
+
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "node-toggle";
+      const canToggle = hasVisibleChildren(node) || collapsedNodeIds.has(node.id);
+      if (!canToggle) {
+        toggleBtn.classList.add("hidden");
+      }
+      toggleBtn.textContent = collapsedNodeIds.has(node.id) ? "+" : "-";
+      toggleBtn.title = collapsedNodeIds.has(node.id) ? "展开后代" : "折叠后代";
+      toggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleNode(node.id);
+      });
+
       const self = document.createElement("div");
       self.className = "tree-node person";
       self.textContent = node.label || node.id || "";
       self.title = node.title || node.id || "";
       self.addEventListener("click", () => openPersonDetail(node.id));
-      group.appendChild(self);
+
+      selfWrap.appendChild(toggleBtn);
+      selfWrap.appendChild(self);
+      group.appendChild(selfWrap);
 
       const selfLeft = GROUP_PAD_X;
       const selfTop = GROUP_PAD_Y;
@@ -460,12 +624,17 @@
       };
 
       (node.spouses || []).forEach((sp, idx) => {
+        const spWrap = document.createElement("div");
+        spWrap.className = "node-box-wrap";
+
         const el = document.createElement("div");
         el.className = "tree-node spouse";
         el.textContent = sp.label || sp.id || "";
         el.title = sp.title || sp.id || "";
         el.addEventListener("click", () => openPersonDetail(sp.id));
-        group.appendChild(el);
+
+        spWrap.appendChild(el);
+        group.appendChild(spWrap);
 
         const left = GROUP_PAD_X + BOX_W + INNER_GAP + idx * (BOX_W + INNER_GAP);
         const top = GROUP_PAD_Y;
@@ -510,7 +679,17 @@
 
       renderGroup(root);
       drawFamilyLines(root);
-      drawExtraLinks(resp.extra_links || []);
+      drawExtraLinks(resp.extra_links || resp.extraLinks || []);
+    }
+
+    function renderCurrentTree() {
+      if (!currentTreeResp || !currentTreeResp.root) {
+        clearTree();
+        return;
+      }
+
+      const visibleResp = buildVisibleTreeResp(currentTreeResp);
+      renderTreeData(visibleResp);
     }
 
     async function loadTreeById(id) {
@@ -522,7 +701,9 @@
 
       setMsg("");
       const resp = await fetchJSON(`/tree?id=${encodeURIComponent(targetID)}`);
-      renderTreeData(resp);
+      currentTreeResp = resp;
+      collapsedNodeIds.clear();
+      renderCurrentTree();
     }
 
     async function handleView() {
@@ -537,38 +718,45 @@
 
         const name = nameInput.value.trim();
         if (!name) {
-          setMsg("请输入人物 ID 或姓名关键字");
+          setMsg("请输入人物 ID 或姓名");
           return;
         }
 
         const resolvedID = await resolveIdByName(name);
         if (!resolvedID) {
-          setMsg("未找到匹配人物");
+          setMsg("未找到对应人物");
           return;
         }
 
         idInput.value = resolvedID;
         await loadTreeById(resolvedID);
-      } catch (e) {
-        setMsg(e.message || String(e));
+      } catch (err) {
+        console.error(err);
+        setMsg(err.message || "加载失败");
+        clearTree();
       }
     }
 
     adminLoginBtn.addEventListener("click", async () => {
       try {
         const ok = await ensureAdminLogin();
-        if (!ok) return;
-        await refreshAdminUI();
-        setMsg("管理员登录成功");
-      } catch (e) {
-        setMsg(e.message || String(e));
+        if (ok) {
+          await refreshAdminUI();
+        }
+      } catch (err) {
+        console.error(err);
+        alert(err.message || "登录失败");
       }
     });
 
     adminLogoutBtn.addEventListener("click", async () => {
-      clearAdminPassword();
-      await refreshAdminUI();
-      setMsg("已退出管理模式");
+      try {
+        await adminLogout();
+        await refreshAdminUI();
+      } catch (err) {
+        console.error(err);
+        alert(err.message || "退出失败");
+      }
     });
 
     viewBtn.addEventListener("click", handleView);
@@ -581,7 +769,13 @@
 
     window.addEventListener("load", async () => {
       await refreshAdminUI();
-      await handleView();
+
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("id") || "";
+      if (id) {
+        idInput.value = id;
+        handleView();
+      }
     });
   </script>
 </body>
