@@ -7,19 +7,17 @@ import (
 )
 
 type treeBuildContext struct {
-	visitedPersons    map[string]bool
 	renderedAdoptions map[string]bool
 	extraLinks        []model.TreeLink
 }
 
 func GetTree(id string) (*model.TreeResponse, error) {
 	ctx := &treeBuildContext{
-		visitedPersons:    map[string]bool{},
 		renderedAdoptions: map[string]bool{},
 		extraLinks:        make([]model.TreeLink, 0),
 	}
 
-	root, err := buildTreeRecursive(id, ctx)
+	root, err := buildTreeRecursive(id, ctx, map[string]bool{})
 	if err != nil {
 		return nil, err
 	}
@@ -37,14 +35,26 @@ func buildPersonLabel(p model.ViewPerson) string {
 	return p.ID
 }
 
-func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, error) {
-	if strings.TrimSpace(id) == "" {
+func cloneVisitPath(src map[string]bool) map[string]bool {
+	dst := make(map[string]bool, len(src)+1)
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func buildTreeRecursive(id string, ctx *treeBuildContext, visitPath map[string]bool) (*model.TreeNode, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
 		return nil, nil
 	}
-	if ctx.visitedPersons[id] {
+
+	if visitPath[id] {
 		return nil, nil
 	}
-	ctx.visitedPersons[id] = true
+
+	currentPath := cloneVisitPath(visitPath)
+	currentPath[id] = true
 
 	view, err := BuildFamilyView(id)
 	if err != nil {
@@ -96,7 +106,7 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 				continue
 			}
 
-			childNode, err := buildTreeRecursive(c.ID, ctx)
+			childNode, err := buildTreeRecursive(c.ID, ctx, currentPath)
 			if err != nil || childNode == nil {
 				continue
 			}
@@ -110,7 +120,7 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 				if ctx.renderedAdoptions[a.PersonID] {
 					continue
 				}
-				childNode, err := buildTreeRecursive(a.PersonID, ctx)
+				childNode, err := buildTreeRecursive(a.PersonID, ctx, currentPath)
 				if err != nil || childNode == nil {
 					continue
 				}
@@ -126,7 +136,7 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 				if ctx.renderedAdoptions[a.PersonID] {
 					continue
 				}
-				childNode, err := buildTreeRecursive(a.PersonID, ctx)
+				childNode, err := buildTreeRecursive(a.PersonID, ctx, currentPath)
 				if err != nil || childNode == nil {
 					continue
 				}
@@ -181,7 +191,6 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 				if strings.TrimSpace(otherParentID) != "" {
 					familyType = "adoption"
 				}
-
 				f = &model.TreeFamily{
 					Key:        pairKey,
 					SpouseID:   otherParentID,
@@ -191,7 +200,7 @@ func buildTreeRecursive(id string, ctx *treeBuildContext) (*model.TreeNode, erro
 				familyMap[pairKey] = f
 			}
 
-			childNode, err := buildTreeRecursive(a.PersonID, ctx)
+			childNode, err := buildTreeRecursive(a.PersonID, ctx, currentPath)
 			if err != nil || childNode == nil {
 				continue
 			}
@@ -215,6 +224,7 @@ func appendAdoptionOriginLinks(ctx *treeBuildContext, a model.Adoption) {
 	if strings.TrimSpace(a.PersonID) == "" {
 		return
 	}
+
 	if strings.TrimSpace(a.FromFatherID) != "" {
 		ctx.extraLinks = append(ctx.extraLinks, model.TreeLink{
 			SourceID: a.PersonID,
@@ -223,6 +233,7 @@ func appendAdoptionOriginLinks(ctx *treeBuildContext, a model.Adoption) {
 			Kind:     "adoption_from",
 		})
 	}
+
 	if strings.TrimSpace(a.FromMotherID) != "" {
 		ctx.extraLinks = append(ctx.extraLinks, model.TreeLink{
 			SourceID: a.PersonID,
