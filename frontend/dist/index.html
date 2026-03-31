@@ -226,6 +226,7 @@
     const PADDING_X = 50;
     const PADDING_Y = 24;
     const PERSON_DETAIL_URL = (id) => `person_detail.html?id=${encodeURIComponent(id)}`;
+    const ADMIN_PWD_KEY = "familytree_admin_password";
 
     const idInput = document.getElementById("idInput");
     const nameInput = document.getElementById("nameInput");
@@ -241,6 +242,26 @@
     let currentTreeResp = null;
     const collapsedNodeIds = new Set();
 
+    function getAdminPassword() {
+      return localStorage.getItem(ADMIN_PWD_KEY) || "";
+    }
+
+    function setAdminPassword(pwd) {
+      localStorage.setItem(ADMIN_PWD_KEY, pwd || "");
+    }
+
+    function clearAdminPassword() {
+      localStorage.removeItem(ADMIN_PWD_KEY);
+    }
+
+    function withAdminHeaders(headers = {}) {
+      const pwd = getAdminPassword();
+      if (pwd) {
+        headers["X-Admin-Password"] = pwd;
+      }
+      return headers;
+    }
+
     function setMsg(text = "") {
       msgEl.textContent = text;
     }
@@ -251,8 +272,12 @@
       nodePosMap = {};
     }
 
-    async function fetchJSON(url, options) {
-      const resp = await fetch(url, options);
+    async function fetchJSON(url, options = {}) {
+      const headers = withAdminHeaders(options.headers || {});
+      const resp = await fetch(url, {
+        ...options,
+        headers
+      });
       if (!resp.ok) {
         const txt = await resp.text();
         throw new Error(txt || `请求失败: ${resp.status}`);
@@ -279,21 +304,32 @@
         throw new Error(txt || "登录失败");
       }
 
+      setAdminPassword(password);
       return true;
     }
 
     async function adminLogout() {
-      await fetch("/auth/logout", { method: "POST" }).catch(() => {});
+      clearAdminPassword();
     }
 
     async function refreshAdminUI() {
       try {
         const st = await checkAdminStatus();
         const authed = !!(st && st.authorized);
-        editorLink.style.display = authed ? "" : "none";
+
+        if (authed) {
+          const pwd = encodeURIComponent(getAdminPassword());
+          editorLink.href = `editor.html?admin_password=${pwd}`;
+          editorLink.style.display = "";
+        } else {
+          editorLink.href = "editor.html";
+          editorLink.style.display = "none";
+        }
+
         adminLoginBtn.style.display = authed ? "none" : "";
         adminLogoutBtn.style.display = authed ? "" : "none";
       } catch {
+        editorLink.href = "editor.html";
         editorLink.style.display = "none";
         adminLoginBtn.style.display = "";
         adminLogoutBtn.style.display = "none";
