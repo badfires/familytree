@@ -98,6 +98,7 @@
       position: relative;
       min-width: 1200px;
       min-height: 700px;
+      background: #ffffff;
     }
 
     #treeSvg {
@@ -200,6 +201,7 @@
       <button id="viewBtn" type="button">查看族谱</button>
 
       <a id="editorLink" class="text-link" href="editor.html" style="display:none;">打开录入页</a>
+      <button id="exportBtn" type="button" style="display:none;">导出图片</button>
       <button id="adminLoginBtn" type="button">管理员登录</button>
       <button id="adminLogoutBtn" type="button" style="display:none;">退出管理</button>
     </div>
@@ -214,6 +216,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
   <script>
     const BOX_W = 200;
     const BOX_H = 64;
@@ -235,6 +238,7 @@
     const stage = document.getElementById("treeStage");
     const svg = document.getElementById("treeSvg");
     const editorLink = document.getElementById("editorLink");
+    const exportBtn = document.getElementById("exportBtn");
     const adminLoginBtn = document.getElementById("adminLoginBtn");
     const adminLogoutBtn = document.getElementById("adminLogoutBtn");
 
@@ -321,9 +325,11 @@
           const pwd = encodeURIComponent(getAdminPassword());
           editorLink.href = `editor.html?admin_password=${pwd}`;
           editorLink.style.display = "";
+          exportBtn.style.display = "";
         } else {
           editorLink.href = "editor.html";
           editorLink.style.display = "none";
+          exportBtn.style.display = "none";
         }
 
         adminLoginBtn.style.display = authed ? "none" : "";
@@ -331,6 +337,7 @@
       } catch {
         editorLink.href = "editor.html";
         editorLink.style.display = "none";
+        exportBtn.style.display = "none";
         adminLoginBtn.style.display = "";
         adminLogoutBtn.style.display = "none";
       }
@@ -773,6 +780,42 @@
       }
     }
 
+    async function exportTreeAsPng() {
+      try {
+        const st = await checkAdminStatus();
+        const authed = !!(st && st.authorized);
+        if (!authed) {
+          setMsg("请先管理员登录后再导出图片");
+          await refreshAdminUI();
+          return;
+        }
+
+        if (!currentTreeResp || !currentTreeResp.root) {
+          setMsg("当前没有可导出的族谱内容");
+          return;
+        }
+
+        setMsg("正在导出图片，请稍候...");
+
+        const dataUrl = await htmlToImage.toPng(stage, {
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true
+        });
+
+        const link = document.createElement("a");
+        const id = idInput.value.trim() || "familytree";
+        link.download = `${id}.png`;
+        link.href = dataUrl;
+        link.click();
+
+        setMsg("导出成功");
+      } catch (err) {
+        console.error(err);
+        setMsg(err.message || "导出失败");
+      }
+    }
+
     adminLoginBtn.addEventListener("click", async () => {
       try {
         const ok = await ensureAdminLogin();
@@ -794,6 +837,8 @@
         alert(err.message || "退出失败");
       }
     });
+
+    exportBtn.addEventListener("click", exportTreeAsPng);
 
     viewBtn.addEventListener("click", handleView);
     idInput.addEventListener("keydown", e => {
