@@ -12,7 +12,7 @@ import (
 )
 
 var DB *sql.DB
-const key = "abcd" //简单加密,对db文件做一层简单的加密
+const key = "leimc5" //简单加密,对db文件做一层简单的加密
 func InitDB() {
 
 	escapedKey := url.QueryEscape(key)

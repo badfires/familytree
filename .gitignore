@@ -1,0 +1,46 @@
+# Local application data
+family.db
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Wails / build outputs
+build/bin/
+build/darwin/*/Contents/MacOS/
+build/windows/*.syso
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go build/test artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Frontend dependencies and caches
+node_modules/
+frontend/node_modules/
+.vite/
+dist/
+
+# Environment and local config
+.env
+.env.*
+!.env.example
+AGENTS.md
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+*.tmp
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
