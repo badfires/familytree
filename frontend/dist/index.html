@@ -70,6 +70,21 @@
       margin-left: 8px;
     }
 
+    .toolbar .admin-link {
+      border: none;
+      background: transparent;
+      color: #f2f2f2;
+      font-size: 13px;
+      padding: 0 6px;
+      height: 32px;
+    }
+
+    .toolbar .admin-link:hover {
+      background: transparent;
+      color: #333;
+      text-decoration: underline;
+    }
+
     .msg {
       min-height: 22px;
       margin-bottom: 10px;
@@ -196,14 +211,13 @@
     <h1>族谱视图</h1>
 
     <div class="toolbar">
-      <input id="idInput" placeholder="输入人物 ID，例如 p1" />
-      <input id="nameInput" placeholder="或输入姓名，例如 张三" />
+      <input id="nameInput" placeholder="输入姓名，例如 张三" />
       <button id="viewBtn" type="button">查看族谱</button>
 
       <a id="editorLink" class="text-link" href="editor.html" style="display:none;">打开录入页</a>
       <button id="exportBtn" type="button" style="display:none;">导出图片</button>
-      <button id="adminLoginBtn" type="button">管理员登录</button>
-      <button id="adminLogoutBtn" type="button" style="display:none;">退出管理</button>
+      <button id="adminLoginBtn" class="admin-link" type="button">管理</button>
+      <button id="adminLogoutBtn" class="admin-link" type="button" style="display:none;">退出管理</button>
     </div>
 
     <div id="msg" class="msg"></div>
@@ -231,7 +245,6 @@
     const PERSON_DETAIL_URL = (id) => `person_detail.html?id=${encodeURIComponent(id)}`;
     const ADMIN_PWD_KEY = "familytree_admin_password";
 
-    const idInput = document.getElementById("idInput");
     const nameInput = document.getElementById("nameInput");
     const viewBtn = document.getElementById("viewBtn");
     const msgEl = document.getElementById("msg");
@@ -244,6 +257,7 @@
 
     let nodePosMap = {};
     let currentTreeResp = null;
+    let currentTreeID = "";
     const collapsedNodeIds = new Set();
 
     function getAdminPassword() {
@@ -349,6 +363,15 @@
       const list = await fetchJSON(`/person/search?name=${encodeURIComponent(keyword)}`);
       if (!Array.isArray(list) || list.length === 0) return "";
       return (list[0] && (list[0].id || list[0].ID)) || "";
+    }
+
+    async function loadDefaultPerson() {
+      const minResp = await fetchJSON("/person/min_id");
+      const defaultID = (minResp && (minResp.id || minResp.ID)) || "";
+      if (!defaultID) return;
+
+      const person = await fetchJSON(`/person/get?id=${encodeURIComponent(defaultID)}`);
+      nameInput.value = (person && (person.name || person.Name)) || "";
     }
 
     function hasVisibleChildren(node) {
@@ -738,13 +761,14 @@
     async function loadTreeById(id) {
       const targetID = (id || "").trim();
       if (!targetID) {
-        setMsg("请输入人物 ID");
+        setMsg("未找到可查看的人物");
         return;
       }
 
       setMsg("");
       const resp = await fetchJSON(`/tree?id=${encodeURIComponent(targetID)}`);
       currentTreeResp = resp;
+      currentTreeID = targetID;
       collapsedNodeIds.clear();
       renderCurrentTree();
     }
@@ -753,15 +777,9 @@
       try {
         setMsg("");
 
-        const directID = idInput.value.trim();
-        if (directID) {
-          await loadTreeById(directID);
-          return;
-        }
-
         const name = nameInput.value.trim();
         if (!name) {
-          setMsg("请输入人物 ID 或姓名");
+          setMsg("请输入姓名");
           return;
         }
 
@@ -771,7 +789,6 @@
           return;
         }
 
-        idInput.value = resolvedID;
         await loadTreeById(resolvedID);
       } catch (err) {
         console.error(err);
@@ -804,7 +821,7 @@
         });
 
         const link = document.createElement("a");
-        const id = idInput.value.trim() || "familytree";
+        const id = currentTreeID || nameInput.value.trim() || "familytree";
         link.download = `${id}.png`;
         link.href = dataUrl;
         link.click();
@@ -841,21 +858,27 @@
     exportBtn.addEventListener("click", exportTreeAsPng);
 
     viewBtn.addEventListener("click", handleView);
-    idInput.addEventListener("keydown", e => {
-      if (e.key === "Enter") handleView();
-    });
     nameInput.addEventListener("keydown", e => {
       if (e.key === "Enter") handleView();
     });
 
     window.addEventListener("load", async () => {
-      await refreshAdminUI();
+      try {
+        await refreshAdminUI();
 
-      const params = new URLSearchParams(window.location.search);
-      const id = params.get("id") || "";
-      if (id) {
-        idInput.value = id;
-        handleView();
+        const params = new URLSearchParams(window.location.search);
+        const id = params.get("id") || "";
+        if (id) {
+          const person = await fetchJSON(`/person/get?id=${encodeURIComponent(id)}`);
+          nameInput.value = (person && (person.name || person.Name)) || "";
+          await loadTreeById(id);
+          return;
+        }
+
+        await loadDefaultPerson();
+      } catch (err) {
+        console.error(err);
+        setMsg(err.message || "加载默认族谱失败");
       }
     });
   </script>
